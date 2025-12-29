@@ -55,16 +55,41 @@
     <div class="row">
       <!-- Sidebar -->
       <div class="col-lg-3 mb-3">
-        <h6 class="mb-2">Columns</h6>
-        <div id="columnsList" class="list-group small"></div>
-        <hr class="my-3" />
-        <div class="d-flex align-items-center justify-content-between mb-2">
-          <h6 class="mb-0">PXStat Catalog</h6>
-          <button id="loadCatalog" class="btn btn-sm btn-outline-primary">Load</button>
-        </div>
-        <div id="catalogStatus" class="text-muted small mb-2">Not loaded.</div>
-        <div id="catalogList" class="list-group small"></div>
+  <div class="col-lg-3 mb-3">
+  <div class="sticky-top" style="top: 1rem; height: calc(100vh - 2rem); display: flex; flex-direction: column;">
+    
+    <div class="flex-shrink-0">
+      <h6 class="mb-2">PXStat Catalog</h6>
+      <div class="input-group input-group-sm mb-2">
+        <input id="catalogSearch" type="text" class="form-control" placeholder="Search tables...">
+        <button id="loadCatalog" class="btn btn-outline-primary">Load</button>
       </div>
+      <div id="catalogStatus" class="text-muted small mb-2">Not loaded.</div>
+    </div>
+
+    <div 
+      id="catalogList" 
+      class="list-group list-group-flush border rounded overflow-auto mb-3" 
+      style="flex-grow: 1; background: #f8f9fa;"
+    >
+      </div>
+
+    <div class="flex-shrink-0" style="height: 250px; display: flex; flex-direction: column;">
+      <div class="d-flex justify-content-between align-items-center mb-1">
+        <h6 class="mb-0">Active Columns</h6>
+        <span id="columnCount" class="badge bg-secondary rounded-pill" style="font-size: 0.7rem;">0</span>
+      </div>
+      
+      <div 
+        id="columnsList" 
+        class="list-group small border rounded overflow-auto" 
+        style="flex-grow: 1; background: #ffffff;"
+      >
+        </div>
+    </div>
+
+  </div>
+</div>
       <!-- SQL + Table -->
       <div class="col-lg-9">
         <div class="mb-3">

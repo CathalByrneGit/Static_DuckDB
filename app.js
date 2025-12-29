@@ -150,30 +150,87 @@ async function fetchCatalog() {
 }
 
 // 3. UI Rendering (Remains mostly same, added error handling)
+// Store the full list globally so we can filter it without re-fetching
+let fullCatalogItems = [];
+
+const getSectorName = (id) => {
+  const prefix = id.charAt(0).toUpperCase();
+  const sectors = {
+    'A': 'Agriculture', 'B': 'Agriculture/Fishing', 'C': 'Crime/Justice',
+    'E': 'Economy', 'G': 'Government', 'H': 'Housing', 
+    'L': 'Labour Market', 'M': 'Manufacturing', 'P': 'Population', 
+    'Q': 'Quality of Life', 'R': 'Retail', 'S': 'Social Services', 
+    'T': 'Transport', 'V': 'Vital Stats', 'W': 'Wholesale'
+  };
+  return sectors[prefix] || 'Other Statistics';
+};
+
 globalThis.renderCatalog = function renderCatalog(items) {
-  if (!catalogList) return; 
-  catalogList.innerHTML = "";
+  const list = document.getElementById("catalogList");
+  list.innerHTML = "";
   
   if (items.length === 0) {
-    catalogList.innerHTML = "<div class='list-group-item'>No items found.</div>";
+    list.innerHTML = '<div class="p-2 text-muted">No tables found.</div>';
     return;
   }
 
+  // Sort by ID to group prefixes together
+  items.sort((a, b) => a.id.localeCompare(b.id));
+
+  let currentSector = "";
+
   items.forEach((item) => {
+    const sector = getSectorName(item.id);
+
+    // Add sticky header for Sectors
+    if (sector !== currentSector) {
+      const header = document.createElement("div");
+      header.className = "list-group-item list-group-item-dark fw-bold small sticky-top";
+      header.style.zIndex = "1"; // Ensure it stays above items but inside the container
+      header.textContent = sector;
+      list.appendChild(header);
+      currentSector = sector;
+    }
+
     const entry = document.createElement("button");
     entry.type = "button";
-    entry.className = "list-group-item list-group-item-action";
-    entry.innerHTML = `<strong>${item.id}</strong> — ${item.title}`;
-    entry.title = `Last modified: ${item.lastModified}`;
+    entry.className = "list-group-item list-group-item-action py-2";
+    entry.style.fontSize = "0.75rem";
+    entry.innerHTML = `<strong>${item.id}</strong><br><span class="text-wrap">${item.title}</span>`;
     
     entry.addEventListener("click", () => {
-      if (typeof tableInput !== "undefined") tableInput.value = item.id;
-      if (typeof statusEl !== "undefined") statusEl.textContent = `Selected ${item.id}`;
+      document.getElementById("table").value = item.id;
+      // Optional: auto-trigger the load button click
+      // document.getElementById("load").click(); 
     });
     
-    catalogList.appendChild(entry);
+    list.appendChild(entry);
   });
 };
+
+// Add Search Functionality
+document.getElementById("catalogSearch")?.addEventListener("input", (e) => {
+  const term = e.target.value.toLowerCase();
+  const filtered = fullCatalogItems.filter(item => 
+    item.id.toLowerCase().includes(term) || 
+    item.title.toLowerCase().includes(term)
+  );
+  renderCatalog(filtered);
+});
+
+// Update your existing Load Catalog button event
+document.getElementById("loadCatalog").addEventListener("click", async () => {
+  const status = document.getElementById("catalogStatus");
+  status.textContent = "Loading...";
+  try {
+    fullCatalogItems = await fetchCatalog(); // Your existing fetchCatalog function
+    renderCatalog(fullCatalogItems);
+    status.textContent = `Found ${fullCatalogItems.length} tables.`;
+  } catch (err) {
+    status.textContent = "Error loading catalog.";
+    console.error(err);
+  }
+});
 
 // Tables dropdown
 async function updateTablesDropdown() {
