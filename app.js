@@ -25,7 +25,18 @@ let tabulator = new Tabulator("#resultTable", {
 // --- Boot DuckDB ---
 const bundles = duckdb.getJsDelivrBundles();
 const bundle = await duckdb.selectBundle(bundles);
-const worker = new Worker(bundle.mainWorker, { type: "module" });
+async function createDuckdbWorker(url) {
+  const resp = await fetch(url);
+  if (!resp.ok) {
+    throw new Error(`Failed to fetch DuckDB worker script: ${resp.status} ${url}`);
+  }
+  const workerScript = await resp.text();
+  const blob = new Blob([workerScript], { type: "text/javascript" });
+  const blobUrl = URL.createObjectURL(blob);
+  return new Worker(blobUrl);
+}
+
+const worker = await createDuckdbWorker(bundle.mainWorker);
 const logger = new duckdb.ConsoleLogger();
 const db = new duckdb.AsyncDuckDB(logger, worker);
 await db.instantiate(bundle.mainModule, bundle.pthreadWorker);
