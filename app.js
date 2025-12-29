@@ -54,67 +54,18 @@ function setBusy(b) {
   loadBtn.disabled = runBtn.disabled = schemaBtn.disabled = dropBtn.disabled = !!b;
   statusEl.textContent = b ? "Working…" : "Ready.";
 }
-function normalizeRow(row) {
-  if (row instanceof Map) return Object.fromEntries(row);
-  if (Array.isArray(row)) return Object.fromEntries(row);
-  if (row && typeof row === "object") return row;
-  return {};
-}
-
 function renderTabulator(arrowTable) {
-  const rows = (arrowTable?.toArray?.() || []).map((row) => normalizeRow(row));
-  const schemaCols = arrowTable?.schema?.fields?.map((field) => field?.name).filter(Boolean) || [];
-  const cols = schemaCols.length ? schemaCols : Object.keys(rows[0] || {});
-  const columns = cols.map((c) => ({ title: c, field: c, headerFilter: true, sorter: "string" }));
-
-  tabulator.setColumns(columns);
-  tabulator.replaceData(rows);
-}
-
-function renderCatalog(items) {
-  catalogList.innerHTML = "";
-  items.forEach((item) => {
-    const entry = document.createElement("button");
-    entry.type = "button";
-    entry.className = "list-group-item list-group-item-action";
-    entry.textContent = `${item.id} — ${item.title}`;
-    entry.title = `Last modified: ${item.lastModified || "unknown"}`;
-    entry.addEventListener("click", () => {
-      tableInput.value = item.id;
-      statusEl.textContent = `Selected ${item.id} from catalog.`;
-    });
-    catalogList.appendChild(entry);
-  });
-}
-
-async function fetchCatalog() {
-  const endpoint = "https://ws.cso.ie/public/api.jsonrpc";
-  const payload = {
-    jsonrpc: "2.0",
-    method: "PxStat.Data.Cube_API.ReadCollection",
-    params: {
-      language: "en",
-      datefrom: new Date(new Date().setFullYear(new Date().getFullYear() - 2))
-        .toISOString()
-        .slice(0, 10),
-    },
-  };
-
-  const resp = await fetch(endpoint, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
-  if (!resp.ok) {
-    throw new Error(`Catalog request failed: ${resp.status}`);
+  const rows = arrowTable.toArray().map((row) => Object.fromEntries(row));
+  if (!rows.length) {
+    tabulator.clearData();
+    tabulator.setColumns([]);
+    return;
   }
-  const data = await resp.json();
-  const items = (data?.result || []).map((row) => ({
-    id: row?.["link.item.extension"]?.matrix || row?.id || "Unknown",
-    title: row?.["link.item.label"] || row?.title || "Untitled",
-    lastModified: row?.["link.item.updated"] || row?.LastModified,
-  }));
-  return items.filter((item) => item.id && item.id !== "Unknown");
+  const cols = Object.keys(rows[0]);
+  const data = rows.map((r) => Object.fromEntries(cols.map((c) => [c, r[c]])));
+  const columns = cols.map((c) => ({ title: c, field: c, headerFilter: true, sorter: "string" }));
+  tabulator.setColumns(columns);
+  tabulator.replaceData(data);
 }
 
 function renderCatalog(items) {
