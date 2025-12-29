@@ -35,8 +35,12 @@ Build a web app (eventually a browser add-in) that can load PXStat CSO datasets 
 - **Fix:** Fetch the worker script over HTTP, create a Blob URL, and start the worker from that Blob URL.
 
 ## Inventory Exploration
-- Next step is to discover a reliable endpoint for listing PXStat tables and their metadata (to build a catalog/inventory view).
-- Start by reviewing the `csodata` R package for endpoint hints and required parameters.
+- Identified the PXStat JSON-RPC endpoint for listing tables (ReadCollection).
+- Endpoint: `https://ws.cso.ie/public/api.jsonrpc`
+- Method: `PxStat.Data.Cube_API.ReadCollection`
+- Params: `{ "language": "en", "datefrom": "YYYY-MM-DD" }`
+- Response includes table `id`, `title`, and `LastModified` (plus metadata useful for frequency/variables).
+- Next step: implement a JS fetch for ReadCollection and render a catalog list in the UI.
 
 ## Next Actions
 - [ ] Review the CSO Ireland `csodata` R package for API clues: https://github.com/CSOIreland/csodata
