@@ -89,30 +89,29 @@ globalThis.renderCatalog =
     });
   };
 
+// 1. Updated Parsing Logic
 function parseCatalogResult(result) {
-  if (Array.isArray(result)) {
-    const items = result.map((row) => ({
-      id: row?.["link.item.extension"]?.matrix || row?.id || "Unknown",
-      title: row?.["link.item.label"] || row?.title || "Untitled",
-      lastModified: row?.["link.item.updated"] || row?.LastModified,
-    }));
-    return items.filter((item) => item.id && item.id !== "Unknown");
+  // The CSO API typically returns items inside result.link.item
+  const itemsArray = result?.link?.item || [];
+
+  if (!Array.isArray(itemsArray)) {
+    console.error("Unexpected API structure:", result);
+    return [];
   }
 
-  const labels = result?.["link.item.label"] || [];
-  const updated = result?.["link.item.updated"] || [];
-  const matrices = result?.["link.item.extension"]?.matrix || [];
-  const count = Math.max(labels.length, updated.length, matrices.length);
-
-  const items = Array.from({ length: count }, (_, i) => ({
-    id: matrices[i] || "Unknown",
-    title: labels[i] || "Untitled",
-    lastModified: updated[i],
-  }));
-
-  return items.filter((item) => item.id && item.id !== "Unknown");
+  return itemsArray.map((row) => {
+    return {
+      // The Matrix ID is usually in extension.matrix
+      id: row.extension?.matrix || "Unknown",
+      // The Title is in the label field
+      title: row.label || "Untitled",
+      // The update timestamp
+      lastModified: row.updated || "Unknown",
+    };
+  }).filter(item => item.id !== "Unknown");
 }
 
+// 2. Updated Fetch Logic
 async function fetchCatalog() {
   const endpoint = "https://ws.cso.ie/public/api.jsonrpc";
   const payload = {
@@ -120,39 +119,61 @@ async function fetchCatalog() {
     method: "PxStat.Data.Cube_API.ReadCollection",
     params: {
       language: "en",
-      datefrom: "1970-01-01",
+      datefrom: "2023-01-01", // Using a more recent date helps performance
     },
   };
 
-  const postResp = await fetch(endpoint, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
-  if (!postResp.ok) {
-    throw new Error(`Catalog request failed: ${postResp.status}`);
-  }
-  const postData = await postResp.json();
-  if (postData?.error) {
-    throw new Error(postData.error.message || "Catalog response error");
-  }
-  let items = parseCatalogResult(postData?.result || {});
+  try {
+    const response = await fetch(endpoint, {
+      method: "POST",
+      // Note: CSO API sometimes requires a simple Content-Type or none at all
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
 
-  if (!items.length) {
-    const query = encodeURIComponent(JSON.stringify(payload));
-    const getResp = await fetch(`${endpoint}?data=${query}`);
-    if (!getResp.ok) {
-      throw new Error(`Catalog request failed: ${getResp.status}`);
-    }
-    const getData = await getResp.json();
-    if (getData?.error) {
-      throw new Error(getData.error.message || "Catalog response error");
-    }
-    items = parseCatalogResult(getData?.result || {});
-  }
+    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
 
-  return items;
+    const data = await response.json();
+    
+    if (data.error) throw new Error(data.error.message);
+
+    // Pass the 'result' object directly to the parser
+    const items = parseCatalogResult(data.result);
+    console.log(`Successfully loaded ${items.length} items.`);
+    return items;
+
+  } catch (error) {
+    console.error("Catalog Fetch Error:", error);
+    // Fallback or rethrow
+    throw error;
+  }
 }
+
+// 3. UI Rendering (Remains mostly same, added error handling)
+globalThis.renderCatalog = function renderCatalog(items) {
+  if (!catalogList) return; 
+  catalogList.innerHTML = "";
+  
+  if (items.length === 0) {
+    catalogList.innerHTML = "<div class='list-group-item'>No items found.</div>";
+    return;
+  }
+
+  items.forEach((item) => {
+    const entry = document.createElement("button");
+    entry.type = "button";
+    entry.className = "list-group-item list-group-item-action";
+    entry.innerHTML = `<strong>${item.id}</strong> — ${item.title}`;
+    entry.title = `Last modified: ${item.lastModified}`;
+    
+    entry.addEventListener("click", () => {
+      if (typeof tableInput !== "undefined") tableInput.value = item.id;
+      if (typeof statusEl !== "undefined") statusEl.textContent = `Selected ${item.id}`;
+    });
+    
+    catalogList.appendChild(entry);
+  });
+};
 
 // Tables dropdown
 async function updateTablesDropdown() {
