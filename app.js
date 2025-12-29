@@ -11,6 +11,9 @@ const dropBtn = document.getElementById("drop");
 const sqlEl = document.getElementById("sql");
 const dropdown = document.getElementById("tablesDropdown");
 const columnsList = document.getElementById("columnsList");
+const catalogBtn = document.getElementById("loadCatalog");
+const catalogStatus = document.getElementById("catalogStatus");
+const catalogList = document.getElementById("catalogList");
 
 // Tabulator grid
 let tabulator = new Tabulator("#resultTable", {
@@ -25,8 +28,18 @@ let tabulator = new Tabulator("#resultTable", {
 // --- Boot DuckDB ---
 const bundles = duckdb.getJsDelivrBundles();
 const bundle = await duckdb.selectBundle(bundles);
-const workerURL = URL.createObjectURL(new Blob([`importScripts("${bundle.mainWorker}")`], { type: "text/javascript" }));
-const worker = new Worker(workerURL);
+async function createDuckdbWorker(url) {
+  const resp = await fetch(url);
+  if (!resp.ok) {
+    throw new Error(`Failed to fetch DuckDB worker script: ${resp.status} ${url}`);
+  }
+  const workerScript = await resp.text();
+  const blob = new Blob([workerScript], { type: "text/javascript" });
+  const blobUrl = URL.createObjectURL(blob);
+  return new Worker(blobUrl);
+}
+
+const worker = await createDuckdbWorker(bundle.mainWorker);
 const logger = new duckdb.ConsoleLogger();
 const db = new duckdb.AsyncDuckDB(logger, worker);
 await db.instantiate(bundle.mainModule, bundle.pthreadWorker);
@@ -53,6 +66,52 @@ function renderTabulator(arrowTable) {
   const columns = cols.map((c) => ({ title: c, field: c, headerFilter: true, sorter: "string" }));
   tabulator.setColumns(columns);
   tabulator.replaceData(data);
+}
+
+function renderCatalog(items) {
+  catalogList.innerHTML = "";
+  items.forEach((item) => {
+    const entry = document.createElement("button");
+    entry.type = "button";
+    entry.className = "list-group-item list-group-item-action";
+    entry.textContent = `${item.id} — ${item.title}`;
+    entry.title = `Last modified: ${item.lastModified || "unknown"}`;
+    entry.addEventListener("click", () => {
+      tableInput.value = item.id;
+      statusEl.textContent = `Selected ${item.id} from catalog.`;
+    });
+    catalogList.appendChild(entry);
+  });
+}
+
+async function fetchCatalog() {
+  const endpoint = "https://ws.cso.ie/public/api.jsonrpc";
+  const payload = {
+    jsonrpc: "2.0",
+    method: "PxStat.Data.Cube_API.ReadCollection",
+    params: {
+      language: "en",
+      datefrom: new Date(new Date().setFullYear(new Date().getFullYear() - 2))
+        .toISOString()
+        .slice(0, 10),
+    },
+  };
+
+  const resp = await fetch(endpoint, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!resp.ok) {
+    throw new Error(`Catalog request failed: ${resp.status}`);
+  }
+  const data = await resp.json();
+  const items = (data?.result || []).map((row) => ({
+    id: row?.["link.item.extension"]?.matrix || row?.id || "Unknown",
+    title: row?.["link.item.label"] || row?.title || "Untitled",
+    lastModified: row?.["link.item.updated"] || row?.LastModified,
+  }));
+  return items.filter((item) => item.id && item.id !== "Unknown");
 }
 
 // Tables dropdown
@@ -197,6 +256,19 @@ loadBtn.addEventListener("click", loadPxStat);
 runBtn.addEventListener("click", runSql);
 schemaBtn.addEventListener("click", showSchema);
 dropBtn.addEventListener("click", dropTable);
+catalogBtn.addEventListener("click", async () => {
+  catalogBtn.disabled = true;
+  catalogStatus.textContent = "Loading catalog…";
+  try {
+    const items = await fetchCatalog();
+    renderCatalog(items);
+    catalogStatus.textContent = `Loaded ${items.length} tables.`;
+  } catch (err) {
+    catalogStatus.textContent = `Error: ${err.message}`;
+  } finally {
+    catalogBtn.disabled = false;
+  }
+});
 
 // Keyboard shortcut: Ctrl+Enter or Cmd+Enter to run SQL
 sqlEl.addEventListener("keydown", (e) => {
