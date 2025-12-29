@@ -71,21 +71,23 @@ function renderTabulator(arrowTable) {
   tabulator.replaceData(rows);
 }
 
-function renderCatalog(items) {
-  catalogList.innerHTML = "";
-  items.forEach((item) => {
-    const entry = document.createElement("button");
-    entry.type = "button";
-    entry.className = "list-group-item list-group-item-action";
-    entry.textContent = `${item.id} — ${item.title}`;
-    entry.title = `Last modified: ${item.lastModified || "unknown"}`;
-    entry.addEventListener("click", () => {
-      tableInput.value = item.id;
-      statusEl.textContent = `Selected ${item.id} from catalog.`;
+globalThis.renderCatalog =
+  globalThis.renderCatalog ||
+  function renderCatalog(items) {
+    catalogList.innerHTML = "";
+    items.forEach((item) => {
+      const entry = document.createElement("button");
+      entry.type = "button";
+      entry.className = "list-group-item list-group-item-action";
+      entry.textContent = `${item.id} — ${item.title}`;
+      entry.title = `Last modified: ${item.lastModified || "unknown"}`;
+      entry.addEventListener("click", () => {
+        tableInput.value = item.id;
+        statusEl.textContent = `Selected ${item.id} from catalog.`;
+      });
+      catalogList.appendChild(entry);
     });
-    catalogList.appendChild(entry);
-  });
-}
+  };
 
 async function fetchCatalog() {
   const endpoint = "https://ws.cso.ie/public/api.jsonrpc";
@@ -131,52 +133,6 @@ async function fetchCatalog() {
     lastModified: updated[i],
   }));
 
-  return items.filter((item) => item.id && item.id !== "Unknown");
-}
-
-function renderCatalog(items) {
-  catalogList.innerHTML = "";
-  items.forEach((item) => {
-    const entry = document.createElement("button");
-    entry.type = "button";
-    entry.className = "list-group-item list-group-item-action";
-    entry.textContent = `${item.id} — ${item.title}`;
-    entry.title = `Last modified: ${item.lastModified || "unknown"}`;
-    entry.addEventListener("click", () => {
-      tableInput.value = item.id;
-      statusEl.textContent = `Selected ${item.id} from catalog.`;
-    });
-    catalogList.appendChild(entry);
-  });
-}
-
-async function fetchCatalog() {
-  const endpoint = "https://ws.cso.ie/public/api.jsonrpc";
-  const payload = {
-    jsonrpc: "2.0",
-    method: "PxStat.Data.Cube_API.ReadCollection",
-    params: {
-      language: "en",
-      datefrom: new Date(new Date().setFullYear(new Date().getFullYear() - 2))
-        .toISOString()
-        .slice(0, 10),
-    },
-  };
-
-  const resp = await fetch(endpoint, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
-  if (!resp.ok) {
-    throw new Error(`Catalog request failed: ${resp.status}`);
-  }
-  const data = await resp.json();
-  const items = (data?.result || []).map((row) => ({
-    id: row?.["link.item.extension"]?.matrix || row?.id || "Unknown",
-    title: row?.["link.item.label"] || row?.title || "Untitled",
-    lastModified: row?.["link.item.updated"] || row?.LastModified,
-  }));
   return items.filter((item) => item.id && item.id !== "Unknown");
 }
 
@@ -327,7 +283,7 @@ catalogBtn.addEventListener("click", async () => {
   catalogStatus.textContent = "Loading catalog…";
   try {
     const items = await fetchCatalog();
-    renderCatalog(items);
+    globalThis.renderCatalog(items);
     catalogStatus.textContent = `Loaded ${items.length} tables.`;
   } catch (err) {
     catalogStatus.textContent = `Error: ${err.message}`;
