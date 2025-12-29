@@ -27,12 +27,16 @@ Build a web app (eventually a browser add-in) that can load PXStat CSO datasets 
 
 ## Results So Far
 - DuckDB WASM initializes successfully via fetched worker script.
-- Single PXStat table loads into DuckDB from CSV and queries run locally.
-- Basic UI includes SQL editor, results grid, and schema/column helpers.
+- Multiple PXStat tables can be loaded into DuckDB from CSV and queried locally.
+- Basic UI includes SQL editor, results grid, schema/column helpers, and a table viewer.
 
 ## Issues & Fixes
 - **Issue:** DuckDB worker failed to load due to cross-origin restrictions when loading the worker script directly from the CDN.
 - **Fix:** Fetch the worker script over HTTP, create a Blob URL, and start the worker from that Blob URL.
+
+## Inventory Exploration
+- Next step is to discover a reliable endpoint for listing PXStat tables and their metadata (to build a catalog/inventory view).
+- Start by reviewing the `csodata` R package for endpoint hints and required parameters.
 
 ## Next Actions
 - [ ] Review the CSO Ireland `csodata` R package for API clues: https://github.com/CSOIreland/csodata
@@ -56,3 +60,4 @@ Build a web app (eventually a browser add-in) that can load PXStat CSO datasets 
 - 2025-09-16: Marked single-table DuckDB WASM load prototype complete and documented current results.
 - 2025-09-16: Noted working DuckDB WASM load + query flow and adjusted next actions.
 - 2025-09-16: Documented DuckDB worker CORS issue and the Blob-based worker fix.
+- 2025-09-16: Noted multi-table loading and moved focus to PXStat table inventory discovery.
