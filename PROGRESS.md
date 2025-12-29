@@ -15,20 +15,15 @@ Build a web app (eventually a browser add-in) that can load PXStat CSO datasets 
 
 ## Milestones
 - [ ] Research PXStat API endpoints and data formats.
-- [x] Prototype DuckDB WASM loading for a single table.
+- [ ] Prototype DuckDB WASM loading for a single table.
 - [ ] Support multiple table loads and joins.
 - [ ] Build table inventory (metadata list + discovery).
-- [ ] Basic web UI with SQL editor and results pane (in progress).
+- [ ] Basic web UI with SQL editor and results pane.
 - [ ] Document add-in integration approach.
 
 ## Current Status
 - **Phase:** Planning
-- **Progress:** DuckDB WASM single-table load prototype works; UI scaffold in place.
-
-## Results So Far
-- DuckDB WASM initializes via module worker.
-- Single PXStat table loads into DuckDB from CSV.
-- Basic UI includes SQL editor, results grid, and schema/column helpers.
+- **Progress:** Initial project setup
 
 ## Next Actions
 - [ ] Review the CSO Ireland `csodata` R package for API clues: https://github.com/CSOIreland/csodata
@@ -49,4 +44,3 @@ Build a web app (eventually a browser add-in) that can load PXStat CSO datasets 
 
 ## Change Log
 - 2025-09-16: Created initial progress guide.
-- 2025-09-16: Marked single-table DuckDB WASM load prototype complete and documented current results.
