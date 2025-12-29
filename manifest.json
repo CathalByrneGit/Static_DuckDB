@@ -1,0 +1,14 @@
+{
+  "manifest_version": 3,
+  "name": "PXStat Workbench",
+  "version": "1.0",
+  "description": "Analyze CSO data with DuckDB in your side panel.",
+  "permissions": ["menus", "sidebarAction", "storage"],
+  "sidebar_action": {
+    "default_panel": "pages/index.html"
+  },
+  "background": {
+    "default_title": "PXStat Workbench",
+    "scripts": ["background.js"]
+  }
+}
