@@ -89,30 +89,7 @@ globalThis.renderCatalog =
     });
   };
 
-async function fetchCatalog() {
-  const endpoint = "https://ws.cso.ie/public/api.jsonrpc";
-  const payload = {
-    jsonrpc: "2.0",
-    method: "PxStat.Data.Cube_API.ReadCollection",
-    params: {
-      language: "en",
-      datefrom: new Date(new Date().setFullYear(new Date().getFullYear() - 2))
-        .toISOString()
-        .slice(0, 10),
-    },
-  };
-
-  const resp = await fetch(endpoint, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
-  if (!resp.ok) {
-    throw new Error(`Catalog request failed: ${resp.status}`);
-  }
-  const data = await resp.json();
-  const result = data?.result || {};
-
+function parseCatalogResult(result) {
   if (Array.isArray(result)) {
     const items = result.map((row) => ({
       id: row?.["link.item.extension"]?.matrix || row?.id || "Unknown",
@@ -122,9 +99,9 @@ async function fetchCatalog() {
     return items.filter((item) => item.id && item.id !== "Unknown");
   }
 
-  const labels = result["link.item.label"] || [];
-  const updated = result["link.item.updated"] || [];
-  const matrices = result["link.item.extension"]?.matrix || [];
+  const labels = result?.["link.item.label"] || [];
+  const updated = result?.["link.item.updated"] || [];
+  const matrices = result?.["link.item.extension"]?.matrix || [];
   const count = Math.max(labels.length, updated.length, matrices.length);
 
   const items = Array.from({ length: count }, (_, i) => ({
@@ -134,6 +111,47 @@ async function fetchCatalog() {
   }));
 
   return items.filter((item) => item.id && item.id !== "Unknown");
+}
+
+async function fetchCatalog() {
+  const endpoint = "https://ws.cso.ie/public/api.jsonrpc";
+  const payload = {
+    jsonrpc: "2.0",
+    method: "PxStat.Data.Cube_API.ReadCollection",
+    params: {
+      language: "en",
+      datefrom: "1970-01-01",
+    },
+  };
+
+  const postResp = await fetch(endpoint, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!postResp.ok) {
+    throw new Error(`Catalog request failed: ${postResp.status}`);
+  }
+  const postData = await postResp.json();
+  if (postData?.error) {
+    throw new Error(postData.error.message || "Catalog response error");
+  }
+  let items = parseCatalogResult(postData?.result || {});
+
+  if (!items.length) {
+    const query = encodeURIComponent(JSON.stringify(payload));
+    const getResp = await fetch(`${endpoint}?data=${query}`);
+    if (!getResp.ok) {
+      throw new Error(`Catalog request failed: ${getResp.status}`);
+    }
+    const getData = await getResp.json();
+    if (getData?.error) {
+      throw new Error(getData.error.message || "Catalog response error");
+    }
+    items = parseCatalogResult(getData?.result || {});
+  }
+
+  return items;
 }
 
 // Tables dropdown
