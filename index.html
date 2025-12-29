@@ -43,9 +43,9 @@
           Show Schema
         </button>
       </div>
-      <div class="col-auto">
-        <button id="drop" class="btn btn-danger">Drop Table</button>
-      </div>
+        <div class="col-auto">
+          <button id="drop" class="btn btn-danger">Drop Table/View</button>
+        </div>
     </div>
 
     <div id="status" class="text-muted">Ready.</div>
@@ -90,6 +90,29 @@
 
   </div>
 </div>
+<div class="card mb-3">
+  <div class="card-header bg-light">
+    <h6 class="mb-0">Join Helper</h6>
+  </div>
+  <div class="card-body">
+    <div class="row g-2">
+      <div class="col-md-5">
+        <select id="joinTableA" class="form-select form-select-sm"><option>Table A</option></select>
+      </div>
+      <div class="col-md-5">
+        <select id="joinTableB" class="form-select form-select-sm"><option>Table B</option></select>
+      </div>
+      <div class="col-md-2">
+        <button id="generateJoin" class="btn btn-sm btn-primary w-100">Draft Join</button>
+      </div>
+      <div class="col-md-12 mt-2">
+  <button id="checkOverlap" class="btn btn-sm btn-outline-secondary w-100">Analyze Key Overlap</button>
+  <div id="overlapResults" class="mt-2 p-2 bg-light border rounded d-none" style="font-size: 0.8rem;"></div>
+</div>
+    </div>
+    <div id="joinSuggestions" class="mt-2 small text-muted"></div>
+  </div>
+</div>
       <!-- SQL + Table -->
       <div class="col-lg-9">
         <div class="mb-3">
@@ -102,6 +125,13 @@
           ></textarea>
           <div class="mt-2">
             <button id="run" class="btn btn-success">Run SQL</button>
+            <button id="saveView" class="btn btn-outline-info">Save as View</button>
+            <div class="col-auto">
+            <button id="downloadCsv" class="btn btn-outline-success">
+              <i class="bi bi-download"></i> Download CSV
+            </button>
+          </div>
+          
           </div>
         </div>
         <div id="resultTable" class="border"></div>
