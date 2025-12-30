@@ -7,6 +7,33 @@
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
+  <!-- Theme Toggle -->
+  <div class="theme-toggle">
+    <button id="themeLight" class="active">☀️ Light</button>
+    <button id="themeDark">🌙 Dark</button>
+  </div>
+
+  <!-- History Toggle Button -->
+  <button id="historyToggle" class="history-toggle">📜 History</button>
+
+  <!-- Query History Panel -->
+  <div id="historyPanel" class="history-panel">
+    <div class="history-header">
+      <h6>Query History</h6>
+      <button id="closeHistory" class="btn-outline btn-sm">✕</button>
+    </div>
+    <div class="history-tabs">
+      <button class="history-tab active" data-tab="recent">Recent</button>
+      <button class="history-tab" data-tab="favorites">★ Favorites</button>
+    </div>
+    <div class="history-actions">
+      <button id="clearHistory" class="btn-danger btn-sm">Clear History</button>
+    </div>
+    <div id="historyList" class="history-list">
+      <div class="empty-state">No queries yet. Run a query to see it here.</div>
+    </div>
+  </div>
+
   <div class="container">
     <h1>PXStat Workbench</h1>
 
@@ -81,6 +108,51 @@
 
       <!-- Main Content -->
       <main>
+        <!-- LLM SQL Assistant -->
+        <div class="card mb-2 assistant-card">
+          <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+            <h6>🤖 SQL Assistant</h6>
+            <div class="assistant-status">
+              <span id="modelStatus" class="badge ready">API Mode</span>
+              <button id="toggleAssistant" class="btn-sm btn-outline">▼</button>
+            </div>
+          </div>
+          <div id="assistantBody" class="assistant-body">
+            <div class="api-config">
+              <div class="flex mb-1">
+                <select id="apiProvider" style="width: auto;">
+                  <option value="anthropic">Anthropic Claude</option>
+                  <option value="openai">OpenAI</option>
+                  <option value="custom">Custom Endpoint</option>
+                </select>
+              </div>
+              <div id="customEndpointRow" class="hidden mb-1">
+                <input id="apiEndpoint" type="text" placeholder="Custom API endpoint URL">
+              </div>
+              <div class="flex mb-1">
+                <input id="apiKey" type="password" placeholder="API key (not stored)" style="flex: 1;">
+              </div>
+              <div class="text-muted text-small mb-1">🔒 API key is never saved - enter each session for security</div>
+            </div>
+            
+            <div class="assistant-input-container">
+              <textarea id="assistantPrompt" rows="2" placeholder="Describe what you want to query in plain English... e.g., 'Show me the top 10 regions by population in 2020'"></textarea>
+              <button id="generateSQL" class="btn-success">Generate SQL</button>
+            </div>
+            
+            <div id="assistantOutput" class="assistant-output hidden">
+              <div class="output-header">
+                <span>Generated SQL:</span>
+                <div class="output-actions">
+                  <button id="copyGenerated" class="btn-sm btn-outline">📋 Copy</button>
+                  <button id="useGenerated" class="btn-sm btn-primary">Use Query</button>
+                </div>
+              </div>
+              <pre id="generatedSQL" class="generated-sql"></pre>
+            </div>
+          </div>
+        </div>
+
         <!-- SQL Editor -->
         <div class="card mb-2">
           <label for="sql" style="font-weight: 600; margin-bottom: 0.5rem; display: block;">SQL Query</label>
