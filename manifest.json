@@ -6,22 +6,26 @@
   "permissions": ["menus", "storage"],
   "host_permissions": ["https://ws.cso.ie/*"],
   
-  "sidebar_action": {
-    "default_panel": "dist/pages/index.html"
-  },
-  
   "action": {
     "default_icon": {
       "48": "icons/pingu-48.svg",
       "96": "icons/pingu-96.svg"
     },
-    "default_title": "Open PXStat Workbench (Full Tab)",
-    "default_popup": ""
+    "default_title": "Open PXStat Workbench"
   },
   
   "options_ui": {
-    "page": "dist/pages/debug.html",
+    "page": "dist/pages/index.html",
     "open_in_tab": true
+  },
+  
+  "commands": {
+    "open-workbench": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+P"
+      },
+      "description": "Open PXStat Workbench"
+    }
   },
   
   "icons": {
@@ -32,10 +36,8 @@
   "web_accessible_resources": [
     {
       "resources": [
-        "dist/export/lib/duckdb-mvp.wasm",
-        "dist/export/lib/duckdb-eh.wasm",
-        "dist/export/lib/duckdb-browser-mvp.worker.js",
-        "dist/export/lib/duckdb-browser-eh.worker.js"
+        "export/lib/*.wasm",
+        "export/lib/*.worker.js"
       ],
       "matches": ["<all_urls>"]
     }

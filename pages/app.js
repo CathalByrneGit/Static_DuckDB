@@ -242,7 +242,7 @@ function csvUrlFor(code) {
 
 function setBusy(b) {
   loadBtn.disabled = runBtn.disabled = schemaBtn.disabled = dropBtn.disabled = !!b;
-  statusEl.textContent = b ? "Working…" : "Ready.";
+  statusEl.textContent = b ? "Working…" : "Queried";
 }
 
 function normalizeRow(row) {
@@ -428,24 +428,91 @@ async function updateTablesDropdown() {
 
 async function loadPxStat() {
   const code = tableInput.value.trim().toUpperCase();
-  if (!code) return;
+  if (!code) {
+    statusEl.textContent = "Please enter a table code";
+    statusEl.style.background = "var(--danger)";
+    statusEl.style.color = "white";
+    setTimeout(() => {
+      statusEl.style.background = "var(--light)";
+      statusEl.style.color = "";
+      statusEl.textContent = "Ready.";
+    }, 3000);
+    return;
+  }
+  
   setBusy(true);
+  
   try {
     const url = csvUrlFor(code);
+    statusEl.textContent = `Fetching ${code} from CSO...`;
+    
     const resp = await fetch(url);
-    if (!resp.ok) throw new Error("Table not found on CSO");
+    
+    // Check if the response is OK
+    if (!resp.ok) {
+      if (resp.status === 404) {
+        throw new Error(`Table '${code}' not found. Please check the code and try again.`);
+      } else if (resp.status === 500) {
+        throw new Error(`Server error loading '${code}'. The CSO API may be temporarily unavailable.`);
+      } else {
+        throw new Error(`Failed to load table '${code}' (Status: ${resp.status})`);
+      }
+    }
+    
+    // Check content type
+    const contentType = resp.headers.get('content-type');
+    if (!contentType || !contentType.includes('text/csv')) {
+      throw new Error(`Table '${code}' returned unexpected format. Expected CSV, got ${contentType || 'unknown'}`);
+    }
+    
     const csv = await resp.text();
+    
+    // Check if CSV is empty or invalid
+    if (!csv || csv.trim().length === 0) {
+      throw new Error(`Table '${code}' is empty or returned no data.`);
+    }
+    
+    statusEl.textContent = `Loading ${code} into DuckDB...`;
+    
     const tableName = `px_${code}`;
     await db.registerFileText(`${tableName}.csv`, csv);
-    await conn.query(`CREATE OR REPLACE TABLE ${tableName} AS SELECT * FROM read_csv_auto('${tableName}.csv')`);
+    
+    // Try to create the table
+    try {
+      await conn.query(`CREATE OR REPLACE TABLE ${tableName} AS SELECT * FROM read_csv_auto('${tableName}.csv')`);
+    } catch (err) {
+      throw new Error(`Failed to parse CSV for '${code}'. The data format may be invalid: ${err.message}`);
+    }
     
     await updateTablesDropdown();
     dropdown.value = tableName;
     await loadColumnsFor(tableName);
     sqlEl.value = `SELECT * FROM ${tableName} LIMIT 50;`;
-    statusEl.textContent = `Loaded ${tableName} successfully.`;
+    
+    // Success message
+    statusEl.textContent = `✓ Loaded ${tableName} successfully`;
+    statusEl.style.background = "var(--success)";
+    statusEl.style.color = "white";
+    setTimeout(() => {
+      statusEl.style.background = "var(--light)";
+      statusEl.style.color = "";
+      statusEl.textContent = "Ready";
+    }, 1000);
+    
   } catch (err) {
-    statusEl.textContent = "Error: " + err.message;
+    console.error("Load error:", err);
+    
+    // Show error to user
+    statusEl.textContent = `✗ Error: ${err.message}`;
+    statusEl.style.background = "var(--danger)";
+    statusEl.style.color = "white";
+    
+    // Keep error visible longer
+    setTimeout(() => {
+      statusEl.style.background = "var(--light)";
+      statusEl.style.color = "";
+      statusEl.textContent = "Failed to Load.";
+    }, 3000);
   } finally {
     setBusy(false);
   }
