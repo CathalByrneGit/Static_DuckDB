@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "PXStat Workbench",
   "version": "1.0",
-  "description": "Analyze CSO data with DuckDB in your side panel.",
+  "description": "Analyze CSO data with DuckDB",
   "permissions": ["menus", "storage"],
   "host_permissions": [
     "https://ws.cso.ie/*",
@@ -54,9 +54,16 @@
   "content_security_policy": {
     "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'; worker-src 'self' blob:;"
   },
+ 
+    "browser_specific_settings": {
+    "gecko": {
+      "id": "pxstat_duckdb@example.com",
+      "strict_min_version": "109.0"
+    },
   
   "background": {
     "scripts": ["dist/background.js"],
     "type": "module"
-  }
+  },
+
 }
