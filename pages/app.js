@@ -27,8 +27,275 @@ const catalogStatus = document.getElementById("catalogStatus");
 const catalogList = document.getElementById("catalogList");
 const catalogSearch = document.getElementById("catalogSearch");
 
+// History panel elements
+const historyPanel = document.getElementById("historyPanel");
+const historyToggle = document.getElementById("historyToggle");
+const closeHistory = document.getElementById("closeHistory");
+const historyList = document.getElementById("historyList");
+const clearHistoryBtn = document.getElementById("clearHistory");
+const historyTabs = document.querySelectorAll(".history-tab");
+
+// Theme elements
+const themeLightBtn = document.getElementById("themeLight");
+const themeDarkBtn = document.getElementById("themeDark");
+
 let fullCatalogItems = [];
 let currentTableData = []; // Store current results for download
+let queryHistory = []; // Store query history
+let currentHistoryTab = 'recent'; // 'recent' or 'favorites'
+
+// --- Theme Management ---
+function initTheme() {
+  // Check for saved theme preference or system preference
+  const savedTheme = localStorage.getItem('pxstat-theme');
+  if (savedTheme) {
+    setTheme(savedTheme);
+  } else if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+    setTheme('dark');
+  } else {
+    setTheme('light');
+  }
+}
+
+function setTheme(theme) {
+  if (theme === 'dark') {
+    document.body.setAttribute('data-theme', 'dark');
+    themeDarkBtn.classList.add('active');
+    themeLightBtn.classList.remove('active');
+  } else {
+    document.body.removeAttribute('data-theme');
+    themeLightBtn.classList.add('active');
+    themeDarkBtn.classList.remove('active');
+  }
+  localStorage.setItem('pxstat-theme', theme);
+}
+
+themeLightBtn.addEventListener('click', () => setTheme('light'));
+themeDarkBtn.addEventListener('click', () => setTheme('dark'));
+
+// Listen for system theme changes
+window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e) => {
+  if (!localStorage.getItem('pxstat-theme')) {
+    setTheme(e.matches ? 'dark' : 'light');
+  }
+});
+
+// --- Query History Management ---
+function initHistory() {
+  const saved = localStorage.getItem('pxstat-query-history');
+  if (saved) {
+    try {
+      queryHistory = JSON.parse(saved);
+    } catch (e) {
+      queryHistory = [];
+    }
+  }
+  renderHistory();
+}
+
+function saveHistory() {
+  // Keep only the last 100 queries
+  if (queryHistory.length > 100) {
+    // Keep favorites and most recent
+    const favorites = queryHistory.filter(q => q.favorite);
+    const nonFavorites = queryHistory.filter(q => !q.favorite).slice(0, 100 - favorites.length);
+    queryHistory = [...favorites, ...nonFavorites];
+  }
+  localStorage.setItem('pxstat-query-history', JSON.stringify(queryHistory));
+}
+
+function addToHistory(query, success = true, rowCount = 0, executionTime = 0) {
+  // Don't add empty queries or duplicates of the last query
+  const trimmedQuery = query.trim();
+  if (!trimmedQuery) return;
+  
+  // Check if this exact query is already the most recent
+  if (queryHistory.length > 0 && queryHistory[0].query === trimmedQuery) {
+    // Update the existing entry instead
+    queryHistory[0].timestamp = Date.now();
+    queryHistory[0].success = success;
+    queryHistory[0].rowCount = rowCount;
+    queryHistory[0].executionTime = executionTime;
+    saveHistory();
+    renderHistory();
+    return;
+  }
+  
+  const entry = {
+    id: Date.now(),
+    query: trimmedQuery,
+    timestamp: Date.now(),
+    success,
+    rowCount,
+    executionTime,
+    favorite: false
+  };
+  
+  queryHistory.unshift(entry);
+  saveHistory();
+  renderHistory();
+}
+
+function toggleFavorite(id) {
+  const entry = queryHistory.find(q => q.id === id);
+  if (entry) {
+    entry.favorite = !entry.favorite;
+    saveHistory();
+    renderHistory();
+  }
+}
+
+function deleteHistoryItem(id) {
+  queryHistory = queryHistory.filter(q => q.id !== id);
+  saveHistory();
+  renderHistory();
+}
+
+function clearHistory() {
+  if (confirm('Are you sure you want to clear all query history? Favorites will be preserved.')) {
+    queryHistory = queryHistory.filter(q => q.favorite);
+    saveHistory();
+    renderHistory();
+  }
+}
+
+function formatTimeAgo(timestamp) {
+  const seconds = Math.floor((Date.now() - timestamp) / 1000);
+  
+  if (seconds < 60) return 'Just now';
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
+  if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
+  if (seconds < 604800) return `${Math.floor(seconds / 86400)}d ago`;
+  
+  return new Date(timestamp).toLocaleDateString();
+}
+
+function renderHistory() {
+  const items = currentHistoryTab === 'favorites' 
+    ? queryHistory.filter(q => q.favorite)
+    : queryHistory;
+  
+  if (items.length === 0) {
+    historyList.innerHTML = `
+      <div class="empty-state">
+        ${currentHistoryTab === 'favorites' 
+          ? 'No favorite queries yet. Click the ★ on a query to add it.' 
+          : 'No queries yet. Run a query to see it here.'}
+      </div>
+    `;
+    return;
+  }
+  
+  historyList.innerHTML = items.map(item => `
+    <div class="history-item ${item.favorite ? 'favorite' : ''}" data-id="${item.id}">
+      <div class="history-item-header">
+        <span class="history-item-time">${formatTimeAgo(item.timestamp)}</span>
+        <div class="history-item-actions">
+          <button class="favorite-btn ${item.favorite ? 'active' : ''}" data-action="favorite" title="Toggle favorite">
+            ${item.favorite ? '★' : '☆'}
+          </button>
+          <button data-action="copy" title="Copy to clipboard">📋</button>
+          <button data-action="delete" title="Delete">🗑️</button>
+        </div>
+      </div>
+      <div class="history-item-query">${escapeHtml(truncateQuery(item.query, 150))}</div>
+      <div class="history-item-meta">
+        ${item.success 
+          ? `<span class="badge" style="background: var(--success);">${item.rowCount} rows</span>` 
+          : `<span class="badge" style="background: var(--danger);">Error</span>`}
+        ${item.executionTime > 0 ? `<span>${item.executionTime}ms</span>` : ''}
+      </div>
+    </div>
+  `).join('');
+  
+  // Add event listeners
+  historyList.querySelectorAll('.history-item').forEach(el => {
+    const id = parseInt(el.dataset.id);
+    
+    // Click on item to load query
+    el.addEventListener('click', (e) => {
+      if (e.target.closest('.history-item-actions')) return;
+      const entry = queryHistory.find(q => q.id === id);
+      if (entry) {
+        sqlEl.value = entry.query;
+        statusEl.textContent = 'Query loaded from history';
+      }
+    });
+    
+    // Action buttons
+    el.querySelectorAll('[data-action]').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const action = btn.dataset.action;
+        
+        if (action === 'favorite') {
+          toggleFavorite(id);
+        } else if (action === 'copy') {
+          const entry = queryHistory.find(q => q.id === id);
+          if (entry) {
+            navigator.clipboard.writeText(entry.query);
+            statusEl.textContent = 'Query copied to clipboard';
+          }
+        } else if (action === 'delete') {
+          deleteHistoryItem(id);
+        }
+      });
+    });
+  });
+}
+
+function truncateQuery(query, maxLength) {
+  if (query.length <= maxLength) return query;
+  return query.substring(0, maxLength) + '...';
+}
+
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+
+// History panel controls
+historyToggle.addEventListener('click', (e) => {
+  e.stopPropagation();
+  historyPanel.classList.toggle('open');
+});
+
+closeHistory.addEventListener('click', () => {
+  historyPanel.classList.remove('open');
+});
+
+// Close history panel when clicking outside
+document.addEventListener('click', (e) => {
+  if (historyPanel.classList.contains('open') && 
+      !historyPanel.contains(e.target) && 
+      e.target !== historyToggle) {
+    historyPanel.classList.remove('open');
+  }
+});
+
+// Prevent clicks inside panel from closing it
+historyPanel.addEventListener('click', (e) => {
+  e.stopPropagation();
+});
+
+// Close with Escape key
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && historyPanel.classList.contains('open')) {
+    historyPanel.classList.remove('open');
+  }
+});
+
+clearHistoryBtn.addEventListener('click', clearHistory);
+
+historyTabs.forEach(tab => {
+  tab.addEventListener('click', () => {
+    historyTabs.forEach(t => t.classList.remove('active'));
+    tab.classList.add('active');
+    currentHistoryTab = tab.dataset.tab;
+    renderHistory();
+  });
+});
 
 // --- Boot DuckDB ---
 const bundle = await duckdb.selectBundle(MANUAL_BUNDLES);
@@ -699,13 +966,33 @@ async function checkPendingCodes() {
 
 // --- Event Listeners ---
 loadBtn.onclick = loadPxStat;
+
 runBtn.onclick = async () => {
+  const query = sqlEl.value.trim();
+  if (!query) {
+    statusEl.textContent = "Please enter a SQL query";
+    return;
+  }
+  
   setBusy(true);
+  const startTime = performance.now();
+  
   try {
-    const res = await conn.query(sqlEl.value);
+    const res = await conn.query(query);
+    const endTime = performance.now();
+    const executionTime = Math.round(endTime - startTime);
+    
     renderTable(res);
+    
+    const rowCount = currentTableData.length;
+    statusEl.textContent = `Query completed: ${rowCount} rows in ${executionTime}ms`;
+    
+    // Add to history
+    addToHistory(query, true, rowCount, executionTime);
+    
   } catch (e) { 
     statusEl.textContent = "SQL Error: " + e.message;
+    addToHistory(query, false, 0, 0);
   }
   setBusy(false);
 };
@@ -762,6 +1049,8 @@ browser.runtime.onMessage.addListener((msg) => {
   }
 });
 
-// Run on startup
+// --- Initialize ---
+initTheme();
+initHistory();
 checkPendingCodes();
 await updateTablesDropdown();

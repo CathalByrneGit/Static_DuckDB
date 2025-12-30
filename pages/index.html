@@ -7,6 +7,33 @@
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
+  <!-- Theme Toggle -->
+  <div class="theme-toggle">
+    <button id="themeLight" class="active">☀️ Light</button>
+    <button id="themeDark">🌙 Dark</button>
+  </div>
+
+  <!-- History Toggle Button -->
+  <button id="historyToggle" class="history-toggle">📜 History</button>
+
+  <!-- Query History Panel -->
+  <div id="historyPanel" class="history-panel">
+    <div class="history-header">
+      <h6>Query History</h6>
+      <button id="closeHistory" class="btn-outline btn-sm">✕</button>
+    </div>
+    <div class="history-tabs">
+      <button class="history-tab active" data-tab="recent">Recent</button>
+      <button class="history-tab" data-tab="favorites">★ Favorites</button>
+    </div>
+    <div class="history-actions">
+      <button id="clearHistory" class="btn-danger btn-sm">Clear History</button>
+    </div>
+    <div id="historyList" class="history-list">
+      <div class="empty-state">No queries yet. Run a query to see it here.</div>
+    </div>
+  </div>
+
   <div class="container">
     <h1>PXStat Workbench</h1>
 
