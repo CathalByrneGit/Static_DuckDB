@@ -3,12 +3,49 @@
   "name": "PXStat Workbench",
   "version": "1.0",
   "description": "Analyze CSO data with DuckDB in your side panel.",
-  "permissions": ["menus", "sidebarAction", "storage"],
+  "permissions": ["menus", "storage"],
+  "host_permissions": ["https://ws.cso.ie/*"],
+  
   "sidebar_action": {
-    "default_panel": "pages/index.html"
+    "default_panel": "dist/pages/index.html"
   },
+  
+  "action": {
+    "default_icon": {
+      "48": "icons/pingu-48.svg",
+      "96": "icons/pingu-96.svg"
+    },
+    "default_title": "Open PXStat Workbench (Full Tab)",
+    "default_popup": ""
+  },
+  
+  "options_ui": {
+    "page": "dist/pages/debug.html",
+    "open_in_tab": true
+  },
+  
+  "icons": {
+    "48": "icons/pingu-48.svg",
+    "96": "icons/pingu-96.svg"
+  },
+  
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "dist/export/lib/duckdb-mvp.wasm",
+        "dist/export/lib/duckdb-eh.wasm",
+        "dist/export/lib/duckdb-browser-mvp.worker.js",
+        "dist/export/lib/duckdb-browser-eh.worker.js"
+      ],
+      "matches": ["<all_urls>"]
+    }
+  ],
+  
+  "content_security_policy": {
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'; worker-src 'self' blob:;"
+  },
+  
   "background": {
-    "default_title": "PXStat Workbench",
-    "scripts": ["background.js"]
+    "scripts": ["dist/background.js"]
   }
 }

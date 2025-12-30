@@ -1,4 +1,15 @@
-import * as duckdb from "https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@1.30.0/+esm";
+import * as duckdb from '@duckdb/duckdb-wasm'; 
+
+const MANUAL_BUNDLES = {
+    mvp: {
+        mainModule: browser.runtime.getURL('export/lib/duckdb-mvp.wasm'),
+        mainWorker: browser.runtime.getURL('export/lib/duckdb-browser-mvp.worker.js'),
+    },
+    eh: {
+        mainModule: browser.runtime.getURL('export/lib/duckdb-eh.wasm'),
+        mainWorker: browser.runtime.getURL('export/lib/duckdb-browser-eh.worker.js'),
+    },
+};
 
 // UI Elements
 const statusEl = document.getElementById("status");
@@ -17,25 +28,13 @@ const catalogList = document.getElementById("catalogList");
 const catalogSearch = document.getElementById("catalogSearch");
 
 let fullCatalogItems = [];
-
-// Tabulator grid
-let tabulator = new Tabulator("#resultTable", {
-  data: [],
-  layout: "fitDataStretch",
-  pagination: "local",
-  paginationSize: 100,
-  movableColumns: true,
-  height: "60vh",
-});
+let currentTableData = []; // Store current results for download
 
 // --- Boot DuckDB ---
-const bundles = duckdb.getJsDelivrBundles();
-const bundle = await duckdb.selectBundle(bundles);
+const bundle = await duckdb.selectBundle(MANUAL_BUNDLES);
+
 async function createDuckdbWorker(url) {
-  const resp = await fetch(url);
-  const workerScript = await resp.text();
-  const blob = new Blob([workerScript], { type: "text/javascript" });
-  return new Worker(URL.createObjectURL(blob));
+  return new Worker(url, { type: 'module' });
 }
 
 const worker = await createDuckdbWorker(bundle.mainWorker);
@@ -44,7 +43,202 @@ const db = new duckdb.AsyncDuckDB(logger, worker);
 await db.instantiate(bundle.mainModule, bundle.pthreadWorker);
 const conn = await db.connect();
 
-// --- Helpers ---
+console.log('DuckDB initialized successfully');
+
+// --- Table Rendering Functions ---
+function renderTable(arrowTable) {
+  const rows = (arrowTable?.toArray?.() || []).map(normalizeRow);
+  const schemaCols = arrowTable?.schema?.fields?.map(f => f.name) || [];
+  
+  // Store for download
+  currentTableData = rows;
+  
+  const tableEl = document.getElementById('resultTable');
+  
+  if (rows.length === 0) {
+    tableEl.innerHTML = '<tbody><tr><td>No results</td></tr></tbody>';
+    return;
+  }
+  
+  // Build table HTML
+  const thead = `
+    <thead>
+      <tr>
+        ${schemaCols.map((col, idx) => `
+          <th data-column-index="${idx}">
+            ${col}
+            <input type="text" 
+                   placeholder="Filter..." 
+                   data-column="${col}"
+                   style="display: block; margin-top: 4px; font-weight: normal;"
+                   onclick="event.stopPropagation()">
+          </th>
+        `).join('')}
+      </tr>
+    </thead>
+  `;
+  
+  const tbody = `
+    <tbody>
+      ${rows.map(row => `
+        <tr>
+          ${schemaCols.map(col => `<td>${formatValue(row[col])}</td>`).join('')}
+        </tr>
+      `).join('')}
+    </tbody>
+  `;
+  
+  tableEl.innerHTML = thead + tbody;
+  
+  // Add filter listeners
+  tableEl.querySelectorAll('th input').forEach(input => {
+    input.addEventListener('input', filterTable);
+  });
+  
+  // Add sort listeners
+  tableEl.querySelectorAll('th').forEach((th, index) => {
+    th.style.cursor = 'pointer';
+    th.addEventListener('click', (e) => {
+      if (e.target.tagName !== 'INPUT') {
+        sortTable(index, schemaCols);
+      }
+    });
+  });
+  
+  // Reset sort state
+  sortDirection = {};
+  currentSortColumn = null;
+}
+
+function formatValue(value) {
+  if (value === null || value === undefined) return '';
+  if (typeof value === 'object') return JSON.stringify(value);
+  return String(value);
+}
+
+function filterTable() {
+  const tableEl = document.getElementById('resultTable');
+  const tbody = tableEl.querySelector('tbody');
+  const filters = {};
+  
+  // Get all filter values
+  tableEl.querySelectorAll('th input').forEach(input => {
+    const col = input.dataset.column;
+    const val = input.value.toLowerCase();
+    if (val) filters[col] = val;
+  });
+  
+  // Filter rows
+  const rows = tbody.querySelectorAll('tr');
+  rows.forEach(row => {
+    const cells = row.querySelectorAll('td');
+    let show = true;
+    
+    Object.keys(filters).forEach((col, index) => {
+      const cellText = cells[index]?.textContent.toLowerCase() || '';
+      if (!cellText.includes(filters[col])) {
+        show = false;
+      }
+    });
+    
+    row.style.display = show ? '' : 'none';
+  });
+}
+
+
+let sortDirection = {};
+let currentSortColumn = null;
+
+function sortTable(columnIndex, columns) {
+  const tableEl = document.getElementById('resultTable');
+  const tbody = tableEl.querySelector('tbody');
+  const rows = Array.from(tbody.querySelectorAll('tr'));
+  const colName = columns[columnIndex];
+  
+  // Toggle sort direction
+  sortDirection[colName] = sortDirection[colName] === 'asc' ? 'desc' : 'asc';
+  const direction = sortDirection[colName];
+  currentSortColumn = columnIndex;
+  
+  // Update header indicators
+  tableEl.querySelectorAll('th').forEach((th, idx) => {
+    const indicator = th.querySelector('.sort-indicator');
+    if (indicator) indicator.remove();
+    
+    if (idx === columnIndex) {
+      const arrow = document.createElement('span');
+      arrow.className = 'sort-indicator';
+      arrow.textContent = direction === 'asc' ? ' ▲' : ' ▼';
+      arrow.style.fontSize = '0.7rem';
+      arrow.style.marginLeft = '0.25rem';
+      th.appendChild(arrow);
+    }
+  });
+  
+  rows.sort((a, b) => {
+    const aVal = a.cells[columnIndex]?.textContent || '';
+    const bVal = b.cells[columnIndex]?.textContent || '';
+    
+    // Try numeric sort first
+    const aNum = parseFloat(aVal);
+    const bNum = parseFloat(bVal);
+    
+    if (!isNaN(aNum) && !isNaN(bNum)) {
+      return direction === 'asc' ? aNum - bNum : bNum - aNum;
+    }
+    
+    // String sort
+    return direction === 'asc' 
+      ? aVal.localeCompare(bVal)
+      : bVal.localeCompare(aVal);
+  });
+  
+  // Re-append rows in sorted order
+  rows.forEach(row => tbody.appendChild(row));
+}
+
+// --- Download as CSV ---
+function downloadCSV() {
+  if (currentTableData.length === 0) {
+    alert("No data available to download. Run a query first!");
+    return;
+  }
+  
+  const tableName = dropdown.value || "cso_data_export";
+  const filename = `${tableName}_${new Date().toISOString().slice(0, 10)}.csv`;
+  
+  // Get column names
+  const columns = Object.keys(currentTableData[0]);
+  
+  // Build CSV
+  let csv = columns.join(',') + '\n';
+  
+  currentTableData.forEach(row => {
+    const values = columns.map(col => {
+      let val = row[col];
+      if (val === null || val === undefined) return '';
+      
+      // Escape quotes and wrap in quotes if contains comma/quote/newline
+      val = String(val);
+      if (val.includes(',') || val.includes('"') || val.includes('\n')) {
+        val = '"' + val.replace(/"/g, '""') + '"';
+      }
+      return val;
+    });
+    csv += values.join(',') + '\n';
+  });
+  
+  // Download
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.download = filename;
+  link.click();
+  
+  statusEl.textContent = `Exported ${filename}`;
+}
+
+// --- Helper Functions ---
 function csvUrlFor(code) {
   code = (code || "").trim().toUpperCase();
   return `https://ws.cso.ie/public/api.restful/PxStat.Data.Cube_API.ReadDataset/${code}/CSV/1.0/en`;
@@ -58,14 +252,6 @@ function setBusy(b) {
 function normalizeRow(row) {
   if (row instanceof Map) return Object.fromEntries(row);
   return row;
-}
-
-function renderTabulator(arrowTable) {
-  const rows = (arrowTable?.toArray?.() || []).map(normalizeRow);
-  const schemaCols = arrowTable?.schema?.fields?.map(f => f.name) || [];
-  const columns = schemaCols.map(c => ({ title: c, field: c, headerFilter: true, sorter: "string" }));
-  tabulator.setColumns(columns);
-  tabulator.replaceData(rows);
 }
 
 // --- Catalog Logic ---
@@ -87,15 +273,15 @@ function renderCatalog(items) {
   items.forEach((item) => {
     const sector = getSectorName(item.id);
     if (sector !== currentSector) {
-      const header = document.createElement("div");
-      header.className = "list-group-item list-group-item-dark fw-bold small sticky-top";
+      const header = document.createElement("li");
+      header.className = "list-item list-item-header";
       header.textContent = sector;
       catalogList.appendChild(header);
       currentSector = sector;
     }
 
-    const entry = document.createElement("button");
-    entry.className = "list-group-item list-group-item-action py-2 small";
+    const entry = document.createElement("li");
+    entry.className = "list-item list-group-item-action";
     entry.innerHTML = `<strong>${item.id}</strong> — ${item.title}`;
     entry.onclick = () => { tableInput.value = item.id; };
     catalogList.appendChild(entry);
@@ -103,7 +289,6 @@ function renderCatalog(items) {
 }
 
 async function loadColumnsFor(tableName) {
-  // 1. Get detailed schema info from DuckDB
   const schemaRes = await conn.query(`DESCRIBE ${tableName};`);
   const columns = schemaRes.toArray().map(r => normalizeRow(r));
   
@@ -114,41 +299,30 @@ async function loadColumnsFor(tableName) {
   for (const col of columns) {
     const name = col.column_name;
     const type = col.column_type.toUpperCase();
-    
-    // Check if it's a float type (where unique values are often unhelpful)
     const isFloat = type.includes("DOUBLE") || type.includes("FLOAT") || type.includes("DECIMAL");
     
-    const container = document.createElement("div");
-    container.className = "list-group-item p-0 border-bottom column-row";
+    const container = document.createElement("li");
+    container.className = "column-item";
 
-    // Header Area: Name and Type
     const header = document.createElement("div");
-    header.className = "d-flex justify-content-between align-items-center p-2 small";
-    header.style.cursor = isFloat ? "default" : "pointer";
-    header.title = isFloat ? `Continuous data (${type})` : "Click to view unique values";
-    
+    header.className = "column-header";
     header.innerHTML = `
       <div class="text-truncate">
-        <span class="fw-bold text-primary">${name}</span>
-        <span class="text-muted ms-1" style="font-size: 0.7rem;">[${type}]</span>
+        <span class="fw-bold" style="color: var(--primary);">${name}</span>
+        <span class="text-muted" style="font-size: 0.7rem;">[${type}]</span>
       </div>
       ${!isFloat ? '<span class="text-muted" style="font-size: 0.6rem;">▼</span>' : ''}
     `;
 
-    // The expansion area for unique values
     const valuesArea = document.createElement("div");
-    valuesArea.className = "bg-light border-top p-2 small d-none";
+    valuesArea.className = "column-values hidden";
 
-    // Click handler on the whole header
     if (!isFloat) {
       header.addEventListener("click", async () => {
-        const isHidden = valuesArea.classList.contains("d-none");
+        const isHidden = valuesArea.classList.contains("hidden");
         
         if (isHidden) {
-          // Close other open value areas if you want a "single accordion" feel
-          // document.querySelectorAll('#columnsList .bg-light').forEach(el => el.classList.add('d-none'));
-
-          valuesArea.classList.remove("d-none");
+          valuesArea.classList.remove("hidden");
           valuesArea.innerHTML = "<em>Querying uniques...</em>";
           
           const tempConn = await db.connect();
@@ -162,32 +336,23 @@ async function loadColumnsFor(tableName) {
             `);
             const rows = res.toArray().map(normalizeRow);
             
-            // Inside your unique value rendering loop (where rows are mapped):
             valuesArea.innerHTML = rows.map(r => {
               const displayVal = r.val === null ? 'NULL' : r.val;
-              // If it's a string, wrap in single quotes for SQL
               const sqlVal = typeof r.val === 'string' ? `'${r.val}'` : r.val;
 
               return `
-                <div class="d-flex justify-content-between border-bottom mb-1 pb-1 group-by-item" 
-                    style="cursor: pointer;" 
-                    title="Click to generate Group By query for this value">
-                  <span class="text-truncate val-text" data-col="${name}" data-val="${sqlVal}">
-                    ${displayVal}
-                  </span>
-                  <span class="badge bg-secondary opacity-75">${r.qty}</span>
+                <div class="value-item" data-col="${name}" data-val="${sqlVal}">
+                  <span class="text-truncate">${displayVal}</span>
+                  <span class="badge">${r.qty}</span>
                 </div>`;
             }).join("") || "No data available";
 
-            // Add click listeners to the new value rows
-            valuesArea.querySelectorAll('.group-by-item').forEach(item => {
+            valuesArea.querySelectorAll('.value-item').forEach(item => {
               item.onclick = (e) => {
                 e.stopPropagation();
-                const textSpan = item.querySelector('.val-text');
-                const col = textSpan.dataset.col;
-                const val = textSpan.dataset.val;
+                const col = item.dataset.col;
+                const val = item.dataset.val;
                 
-                // Generate a useful summary query
                 sqlEl.value = `-- Summary for ${col} = ${val}\n` +
                               `SELECT * FROM ${dropdown.value} \n` +
                               `WHERE "${col}" = ${val} \n` +
@@ -198,12 +363,12 @@ async function loadColumnsFor(tableName) {
               };
             });
           } catch (err) {
-            valuesArea.innerHTML = `<span class="text-danger">Query failed</span>`;
+            valuesArea.innerHTML = `<span style="color: var(--danger);">Query failed</span>`;
           } finally {
             await tempConn.close();
           }
         } else {
-          valuesArea.classList.add("d-none");
+          valuesArea.classList.add("hidden");
         }
       });
     }
@@ -213,7 +378,7 @@ async function loadColumnsFor(tableName) {
     columnsList.appendChild(container);
   }
 }
-// --- Fixed Show Schema ---
+
 async function showSchema() {
   const selected = dropdown.value;
   if (!selected) {
@@ -224,7 +389,7 @@ async function showSchema() {
   setBusy(true);
   try {
     const res = await conn.query(`DESCRIBE ${selected};`);
-    renderTabulator(res); // Pass the Arrow table directly
+    renderTable(res);
     statusEl.textContent = `Displaying schema for ${selected}`;
   } catch (err) {
     console.error("Schema Error:", err);
@@ -234,12 +399,10 @@ async function showSchema() {
   }
 }
 
-// Re-bind the event listener if it was lost
 schemaBtn.onclick = showSchema;
 
 // --- Main App Logic ---
 async function updateTablesDropdown() {
-  // We filter for 'main' schema only, which is where user tables/views live
   const res = await conn.query(`
     SELECT table_name as name, 'Table' as type 
     FROM duckdb_tables() 
@@ -257,17 +420,13 @@ async function updateTablesDropdown() {
   items.forEach((item) => {
     const opt = document.createElement("option");
     opt.value = item.name;
-    // Visually label them so you know which is which
     opt.textContent = `${item.type === 'View' ? '📂' : '📊'} ${item.name}`;
     dropdown.appendChild(opt);
   });
   
   metaEl.textContent = `User objects: ${items.length}`;
   
-  // Inside your init or updateTablesDropdown:
   await updateJoinDropdowns();
-
-  // Bind the button
   document.getElementById("generateJoin").onclick = prepareJoinHelper;
 }
 
@@ -296,8 +455,6 @@ async function loadPxStat() {
   }
 }
 
-
-// Drop selected table or view
 async function dropSelected() {
   const selected = dropdown.value;
   if (!selected) return;
@@ -306,7 +463,6 @@ async function dropSelected() {
 
   setBusy(true);
   try {
-    // Determine if it's a view or table from the dropdown text
     const isView = dropdown.options[dropdown.selectedIndex].text.includes('📂');
     
     if (isView) {
@@ -316,12 +472,11 @@ async function dropSelected() {
     }
 
     statusEl.textContent = `Removed ${selected}.`;
-    
-    // Refresh UI
     await updateTablesDropdown();
     dropdown.value = "";
     columnsList.innerHTML = "";
-    tabulator.clearData();
+    document.getElementById('resultTable').innerHTML = '';
+    currentTableData = [];
     
   } catch (err) {
     console.error(err);
@@ -335,21 +490,15 @@ async function saveAsView() {
   const query = sqlEl.value.trim();
   if (!query) return;
 
-  // Ask user for a view name
   const viewName = prompt("Enter a name for this view (e.g., dublin_stats):");
   if (!viewName) return;
 
-  // Clean the name to be SQL safe
   const safeName = viewName.replace(/[^a-z0-9_]/gi, '_').toLowerCase();
 
   setBusy(true);
   try {
-    // DuckDB command to create a view
     await conn.query(`CREATE OR REPLACE VIEW ${safeName} AS ${query}`);
-    
     statusEl.textContent = `View '${safeName}' created!`;
-    
-    // Refresh the dropdown so the new view appears
     await updateTablesDropdown();
     dropdown.value = safeName;
   } catch (err) {
@@ -369,16 +518,12 @@ async function prepareJoinHelper() {
     return;
   }
 
-  // Fetch columns for both
-  const colsA = (await conn.query(`DESCRIBE ${tableA}`)).toArray().map(r => r.toJSON().column_name);
-  const colsB = (await conn.query(`DESCRIBE ${tableB}`)).toArray().map(r => r.toJSON().column_name);
+  const colsA = (await conn.query(`DESCRIBE ${tableA}`)).toArray().map(r => normalizeRow(r).column_name);
+  const colsB = (await conn.query(`DESCRIBE ${tableB}`)).toArray().map(r => normalizeRow(r).column_name);
 
-  // Find common column names (CSO often uses "Year", "Region", "Census Year")
   const common = colsA.filter(value => colsB.includes(value));
-
   let joinCol = common.length > 0 ? common[0] : "REPLACE_WITH_COLUMN";
   
-  // Generate a template SQL
   const sql = `-- Joining ${tableA} and ${tableB}\n` +
               `SELECT \n` +
               `  a.*, \n` +
@@ -395,14 +540,13 @@ async function prepareJoinHelper() {
       `Suggested join key: <strong>${common.join(", ")}</strong>`;
   } else {
     document.getElementById("joinSuggestions").innerHTML = 
-      `<span class="text-danger">No matching column names found. You'll need to pick the keys manually.</span>`;
+      `<span style="color: var(--danger);">No matching column names found. You'll need to pick the keys manually.</span>`;
   }
 }
 
-// Update the join dropdowns whenever a table is loaded
 async function updateJoinDropdowns() {
   const res = await conn.query(`SELECT table_name FROM duckdb_tables() WHERE internal = false`);
-  const tables = res.toArray().map(r => r.toJSON().table_name);
+  const tables = res.toArray().map(r => normalizeRow(r).table_name);
   
   const selA = document.getElementById("joinTableA");
   const selB = document.getElementById("joinTableB");
@@ -418,14 +562,10 @@ async function updateJoinDropdowns() {
 }
 
 function normalizeRow_view(row) {
-  // Convert Arrow Map/Object to standard object
   let obj = row instanceof Map ? Object.fromEntries(row) : row;
-  
-  // Recursively convert BigInt to Number to avoid "can't convert BigInt to number"
   for (let key in obj) {
     if (typeof obj[key] === 'Bigint') {
       obj[key] = Number(obj[key]); 
-      // Note: Number(BigInt) is safe for counts up to 9 quadrillion
     }
   }
   return obj;
@@ -441,23 +581,21 @@ async function checkKeyOverlap() {
     return;
   }
 
-  // Get the column names to find the common key
   const colsA = (await conn.query(`DESCRIBE ${tableA}`)).toArray().map(r => normalizeRow(r).column_name);
   const colsB = (await conn.query(`DESCRIBE ${tableB}`)).toArray().map(r => normalizeRow(r).column_name);
   const common = colsA.filter(v => colsB.includes(v));
 
   if (common.length === 0) {
-    resultsDiv.innerHTML = `<span class="text-danger">No common column names found to check.</span>`;
-    resultsDiv.classList.remove("d-none");
+    resultsDiv.innerHTML = `<span style="color: var(--danger);">No common column names found to check.</span>`;
+    resultsDiv.classList.remove("hidden");
     return;
   }
 
-  const joinKey = common[0]; // Testing the first common key found
-  resultsDiv.classList.remove("d-none");
+  const joinKey = common[0];
+  resultsDiv.classList.remove("hidden");
   resultsDiv.innerHTML = "<em>Analyzing keys...</em>";
 
   try {
-    // This query identifies how many unique keys match vs differ
     const overlapQuery = `
       WITH keysA AS (SELECT DISTINCT "${joinKey}" as k FROM ${tableA}),
            keysB AS (SELECT DISTINCT "${joinKey}" as k FROM ${tableB})
@@ -468,43 +606,33 @@ async function checkKeyOverlap() {
     `;
     
     const res = await conn.query(overlapQuery);
-    // ... inside checkKeyOverlap after fetching res ...
     const data = normalizeRow_view(res.toArray()[0]);
 
-    // Ensure math is done on Numbers
     const matches = Number(data.matches);
     const totalA = Number(data.totalA);
-
-const matchPercent = totalA > 0 ? ((matches / totalA) * 100).toFixed(1) : 0;
+    const matchPercent = totalA > 0 ? ((matches / totalA) * 100).toFixed(1) : 0;
+    
     resultsDiv.innerHTML = `
       <strong>Key Analysis on [${joinKey}]:</strong><br>
       • Table A has ${data.totalA} unique values.<br>
       • Table B has ${data.totalB} unique values.<br>
-      • <span class="text-success">${data.matches} values match</span> (${matchPercent}% of Table A).
-      ${data.matches === 0 ? '<br><span class="text-warning">⚠ Warning: No matches found. Check for spelling/format differences.</span>' : ''}
+      • <span style="color: var(--success);">${data.matches} values match</span> (${matchPercent}% of Table A).
+      ${data.matches === 0 ? '<br><span style="color: #ffc107;">⚠ Warning: No matches found. Check for spelling/format differences.</span>' : ''}
     `;
   } catch (err) {
-    resultsDiv.innerHTML = `<span class="text-danger">Analysis error: ${err.message}</span>`;
+    resultsDiv.innerHTML = `<span style="color: var(--danger);">Analysis error: ${err.message}</span>`;
   }
 }
 
-
-// Function to check for codes sent via right-click
 async function checkPendingCodes() {
   const data = await browser.storage.local.get("pendingTableCode");
   if (data.pendingTableCode) {
     document.getElementById("table").value = data.pendingTableCode;
     statusEl.textContent = `Received ${data.pendingTableCode} via right-click.`;
-    
-    // Clear it so it doesn't reload every time you open the sidebar
     await browser.storage.local.remove("pendingTableCode");
-    
-    // Trigger the load logic
     loadPxStat(); 
   }
 }
-
-
 
 // --- Event Listeners ---
 loadBtn.onclick = loadPxStat;
@@ -512,31 +640,47 @@ runBtn.onclick = async () => {
   setBusy(true);
   try {
     const res = await conn.query(sqlEl.value);
-    renderTabulator(res);
-  } catch (e) { statusEl.textContent = "SQL Error"; }
+    renderTable(res);
+  } catch (e) { 
+    statusEl.textContent = "SQL Error: " + e.message;
+  }
   setBusy(false);
 };
 
 dropBtn.addEventListener("click", dropSelected);
-
 document.getElementById("saveView").onclick = saveAsView;
 
 catalogBtn.onclick = async () => {
   catalogStatus.textContent = "Fetching...";
-  const payload = { jsonrpc: "2.0", method: "PxStat.Data.Cube_API.ReadCollection", params: { language: "en", datefrom: "2024-01-01" } };
-  const resp = await fetch("https://ws.cso.ie/public/api.jsonrpc", { method: "POST", body: JSON.stringify(payload) });
+  const payload = { 
+    jsonrpc: "2.0", 
+    method: "PxStat.Data.Cube_API.ReadCollection", 
+    params: { language: "en", datefrom: "2024-01-01" } 
+  };
+  const resp = await fetch("https://ws.cso.ie/public/api.jsonrpc", { 
+    method: "POST", 
+    body: JSON.stringify(payload) 
+  });
   const data = await resp.json();
-  fullCatalogItems = data.result.link.item.map(i => ({ id: i.extension.matrix, title: i.label }));
+  fullCatalogItems = data.result.link.item.map(i => ({ 
+    id: i.extension.matrix, 
+    title: i.label 
+  }));
   renderCatalog(fullCatalogItems);
   catalogStatus.textContent = `Loaded ${fullCatalogItems.length} tables.`;
 };
 
 catalogSearch.oninput = (e) => {
   const term = e.target.value.toLowerCase();
-  renderCatalog(fullCatalogItems.filter(i => i.id.toLowerCase().includes(term) || i.title.toLowerCase().includes(term)));
+  renderCatalog(fullCatalogItems.filter(i => 
+    i.id.toLowerCase().includes(term) || 
+    i.title.toLowerCase().includes(term)
+  ));
 };
 
-dropdown.onchange = () => { if (dropdown.value) loadColumnsFor(dropdown.value); };
+dropdown.onchange = () => { 
+  if (dropdown.value) loadColumnsFor(dropdown.value); 
+};
 
 sqlEl.onkeydown = (e) => {
   if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
@@ -545,26 +689,9 @@ sqlEl.onkeydown = (e) => {
   }
 };
 
-// Download functionality
-document.getElementById("downloadCsv").addEventListener("click", () => {
-  // Check if there is data to download
-  if (tabulator.getData().length === 0) {
-    alert("No data available to download. Run a query first!");
-    return;
-  }
-
-  const tableName = dropdown.value || "cso_data_export";
-  const filename = `${tableName}_${new Date().toISOString().slice(0, 10)}.csv`;
-
-  // Use Tabulator's built-in download method
-  tabulator.download("csv", filename, { delimiter: "," });
-  
-  statusEl.textContent = `Exported ${filename}`;
-});
-
+document.getElementById("downloadCsv").addEventListener("click", downloadCSV);
 document.getElementById("checkOverlap").onclick = checkKeyOverlap;
 
-// Also listen for messages if the sidebar is ALREADY open
 browser.runtime.onMessage.addListener((msg) => {
   if (msg.type === "LOAD_FROM_CONTEXT") {
     document.getElementById("table").value = msg.code;
@@ -572,6 +699,6 @@ browser.runtime.onMessage.addListener((msg) => {
   }
 });
 
-// Run this on startup
+// Run on startup
 checkPendingCodes();
 await updateTablesDropdown();
