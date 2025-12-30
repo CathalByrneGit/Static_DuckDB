@@ -108,6 +108,51 @@
 
       <!-- Main Content -->
       <main>
+        <!-- LLM SQL Assistant -->
+        <div class="card mb-2 assistant-card">
+          <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+            <h6>🤖 SQL Assistant</h6>
+            <div class="assistant-status">
+              <span id="modelStatus" class="badge ready">API Mode</span>
+              <button id="toggleAssistant" class="btn-sm btn-outline">▼</button>
+            </div>
+          </div>
+          <div id="assistantBody" class="assistant-body">
+            <div class="api-config">
+              <div class="flex mb-1">
+                <select id="apiProvider" style="width: auto;">
+                  <option value="anthropic">Anthropic Claude</option>
+                  <option value="openai">OpenAI</option>
+                  <option value="custom">Custom Endpoint</option>
+                </select>
+              </div>
+              <div id="customEndpointRow" class="hidden mb-1">
+                <input id="apiEndpoint" type="text" placeholder="Custom API endpoint URL">
+              </div>
+              <div class="flex mb-1">
+                <input id="apiKey" type="password" placeholder="API key (not stored)" style="flex: 1;">
+              </div>
+              <div class="text-muted text-small mb-1">🔒 API key is never saved - enter each session for security</div>
+            </div>
+            
+            <div class="assistant-input-container">
+              <textarea id="assistantPrompt" rows="2" placeholder="Describe what you want to query in plain English... e.g., 'Show me the top 10 regions by population in 2020'"></textarea>
+              <button id="generateSQL" class="btn-success">Generate SQL</button>
+            </div>
+            
+            <div id="assistantOutput" class="assistant-output hidden">
+              <div class="output-header">
+                <span>Generated SQL:</span>
+                <div class="output-actions">
+                  <button id="copyGenerated" class="btn-sm btn-outline">📋 Copy</button>
+                  <button id="useGenerated" class="btn-sm btn-primary">Use Query</button>
+                </div>
+              </div>
+              <pre id="generatedSQL" class="generated-sql"></pre>
+            </div>
+          </div>
+        </div>
+
         <!-- SQL Editor -->
         <div class="card mb-2">
           <label for="sql" style="font-weight: 600; margin-bottom: 0.5rem; display: block;">SQL Query</label>

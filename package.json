@@ -5,10 +5,11 @@
   "type": "module",
   "scripts": {
     "build": "npm run copy-files && vite build",
-    "copy-files": "npm run copy-wasm && npm run copy-html && npm run copy-css",
+    "copy-files": "npm run copy-wasm && npm run copy-html && npm run copy-css && npm run copy-prompt",
     "copy-wasm": "mkdir -p dist/export/lib && cp node_modules/@duckdb/duckdb-wasm/dist/duckdb-mvp.wasm dist/export/lib/ && cp node_modules/@duckdb/duckdb-wasm/dist/duckdb-eh.wasm dist/export/lib/ && cp node_modules/@duckdb/duckdb-wasm/dist/duckdb-browser-mvp.worker.js dist/export/lib/ && cp node_modules/@duckdb/duckdb-wasm/dist/duckdb-browser-eh.worker.js dist/export/lib/",
     "copy-html": "mkdir -p dist/pages && cp pages/index.html dist/pages/",
     "copy-css": "mkdir -p dist/pages && cp pages/styles.css dist/pages/",
+    "copy-prompt": "cp pages/sql-assistant-prompt.md dist/",
     "watch": "vite build --watch",
     "dev": "npm run build && npm run watch"
   },

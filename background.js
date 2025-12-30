@@ -37,3 +37,33 @@ browser.commands.onCommand.addListener((command) => {
     });
   }
 });
+
+// Handle API proxy requests from content scripts (bypasses CORS)
+browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message.type === "API_REQUEST") {
+    handleApiRequest(message.payload)
+      .then(response => sendResponse({ success: true, data: response }))
+      .catch(error => sendResponse({ success: false, error: error.message }));
+    
+    // Return true to indicate we'll respond asynchronously
+    return true;
+  }
+});
+
+// Make API requests from background script (no CORS restrictions)
+async function handleApiRequest(payload) {
+  const { endpoint, headers, body } = payload;
+  
+  const response = await fetch(endpoint, {
+    method: 'POST',
+    headers: headers,
+    body: JSON.stringify(body)
+  });
+  
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`API error ${response.status}: ${errorText}`);
+  }
+  
+  return await response.json();
+}

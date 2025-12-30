@@ -297,6 +297,350 @@ historyTabs.forEach(tab => {
   });
 });
 
+// --- LLM SQL Assistant ---
+const modelStatusEl = document.getElementById('modelStatus');
+const toggleAssistantBtn = document.getElementById('toggleAssistant');
+const assistantBody = document.getElementById('assistantBody');
+const assistantPrompt = document.getElementById('assistantPrompt');
+const generateSQLBtn = document.getElementById('generateSQL');
+const assistantOutput = document.getElementById('assistantOutput');
+const generatedSQLEl = document.getElementById('generatedSQL');
+const copyGeneratedBtn = document.getElementById('copyGenerated');
+const useGeneratedBtn = document.getElementById('useGenerated');
+const apiEndpointInput = document.getElementById('apiEndpoint');
+const apiKeyInput = document.getElementById('apiKey');
+const apiProviderSelect = document.getElementById('apiProvider');
+const customEndpointRow = document.getElementById('customEndpointRow');
+
+// Toggle assistant panel
+toggleAssistantBtn.addEventListener('click', () => {
+  assistantBody.classList.toggle('collapsed');
+  toggleAssistantBtn.textContent = assistantBody.classList.contains('collapsed') ? '▶' : '▼';
+});
+
+// Show/hide custom endpoint input
+apiProviderSelect.addEventListener('change', () => {
+  if (apiProviderSelect.value === 'custom') {
+    customEndpointRow.classList.remove('hidden');
+  } else {
+    customEndpointRow.classList.add('hidden');
+  }
+});
+
+// Load saved API config (provider only - NEVER store API key)
+const savedApiConfig = localStorage.getItem('pxstat-api-config');
+if (savedApiConfig) {
+  try {
+    const config = JSON.parse(savedApiConfig);
+    apiProviderSelect.value = config.provider || 'anthropic';
+    if (config.endpoint) apiEndpointInput.value = config.endpoint;
+    if (apiProviderSelect.value === 'custom') {
+      customEndpointRow.classList.remove('hidden');
+    }
+  } catch (e) {}
+}
+
+// Save API config on change (NEVER store API key)
+[apiEndpointInput, apiProviderSelect].forEach(el => {
+  el.addEventListener('change', () => {
+    localStorage.setItem('pxstat-api-config', JSON.stringify({
+      endpoint: apiEndpointInput.value,
+      provider: apiProviderSelect.value
+    }));
+  });
+});
+
+// Build context from loaded tables
+async function buildTableContext() {
+  try {
+    const tablesRes = await conn.query(`
+      SELECT table_name as name FROM duckdb_tables() 
+      WHERE schema_name = 'main' AND internal = false
+    `);
+    const tables = tablesRes.toArray().map(r => normalizeRow(r).name);
+    
+    if (tables.length === 0) {
+      return "No tables loaded yet. Load a PXStat table first.";
+    }
+    
+    let context = "";
+    let allColumns = {}; // Track columns per table for join analysis
+    
+    // First pass: gather all table schemas
+    for (const tableName of tables) {
+      const schemaRes = await conn.query(`DESCRIBE ${tableName};`);
+      const columns = schemaRes.toArray().map(r => normalizeRow(r));
+      
+      allColumns[tableName] = columns.map(c => c.column_name);
+      
+      context += `\nTable: ${tableName}\nColumns:\n`;
+      columns.forEach(col => {
+        context += `  - ${col.column_name} (${col.column_type})\n`;
+      });
+      
+      // Get sample values for non-numeric columns (helps LLM understand data)
+      const sampleCols = columns
+        .filter(c => !c.column_type.includes('DOUBLE') && !c.column_type.includes('FLOAT'))
+        .slice(0, 4);
+      
+      if (sampleCols.length > 0) {
+        context += `Sample values:\n`;
+        for (const col of sampleCols) {
+          try {
+            const sampleRes = await conn.query(`
+              SELECT DISTINCT "${col.column_name}" as val 
+              FROM ${tableName} 
+              WHERE "${col.column_name}" IS NOT NULL
+              LIMIT 5
+            `);
+            const vals = sampleRes.toArray().map(r => normalizeRow(r).val);
+            if (vals.length > 0) {
+              context += `  ${col.column_name}: ${vals.join(', ')}\n`;
+            }
+          } catch (e) {}
+        }
+      }
+    }
+    
+    // Second pass: identify potential join keys between tables
+    if (tables.length > 1) {
+      context += `\n# Potential Join Keys\n`;
+      context += `The following columns exist in multiple tables and can be used for JOINs:\n`;
+      
+      const tableNames = Object.keys(allColumns);
+      const joinSuggestions = [];
+      
+      for (let i = 0; i < tableNames.length; i++) {
+        for (let j = i + 1; j < tableNames.length; j++) {
+          const tableA = tableNames[i];
+          const tableB = tableNames[j];
+          const colsA = allColumns[tableA];
+          const colsB = allColumns[tableB];
+          
+          const commonCols = colsA.filter(c => colsB.includes(c));
+          
+          if (commonCols.length > 0) {
+            joinSuggestions.push(
+              `- ${tableA} <-> ${tableB}: can join on "${commonCols.join('", "')}"`
+            );
+          }
+        }
+      }
+      
+      if (joinSuggestions.length > 0) {
+        context += joinSuggestions.join('\n') + '\n';
+        context += `\nExample JOIN syntax:\n`;
+        context += `SELECT a.*, b.* EXCLUDE ("CommonColumn")\n`;
+        context += `FROM table_a a\n`;
+        context += `INNER JOIN table_b b ON a."CommonColumn" = b."CommonColumn"\n`;
+      } else {
+        context += `- No common column names found between tables. Manual key selection required.\n`;
+      }
+    }
+    
+    return context;
+  } catch (err) {
+    console.error('Error building context:', err);
+    return "Error loading table context.";
+  }
+}
+
+// Load the prompt template from external file
+let promptTemplate = null;
+
+async function loadPromptTemplate() {
+  try {
+    const url = browser.runtime.getURL('dist/sql-assistant-prompt.md');
+    const response = await fetch(url);
+    if (response.ok) {
+      promptTemplate = await response.text();
+      console.log('Loaded SQL assistant prompt template');
+    } else {
+      console.warn('Could not load prompt template, using fallback');
+      promptTemplate = getFallbackPrompt();
+    }
+  } catch (err) {
+    console.warn('Error loading prompt template:', err);
+    promptTemplate = getFallbackPrompt();
+  }
+}
+
+// Fallback prompt if file can't be loaded
+function getFallbackPrompt() {
+  return `# DuckDB SQL Assistant
+
+You are an SQL assistant for a DuckDB database containing Irish CSO PXStat statistical data.
+
+## DuckDB Tips
+- Use double quotes (") for identifiers, single quotes (') for strings
+- Always include LIMIT clause
+- Use EXCLUDE in joins to avoid duplicate columns
+
+## Available Tables
+{{TABLE_CONTEXT}}
+
+## Instructions
+- Write a single SQL query to answer the user's question
+- Use only tables/columns listed above
+- Return ONLY the SQL query, no explanations
+
+## User Question
+{{USER_PROMPT}}
+
+## SQL Query`;
+}
+
+// Build the final prompt with context injected
+function buildPrompt(tableContext, userPrompt) {
+  if (!promptTemplate) {
+    promptTemplate = getFallbackPrompt();
+  }
+  
+  return promptTemplate
+    .replace('{{TABLE_CONTEXT}}', tableContext)
+    .replace('{{USER_PROMPT}}', userPrompt);
+}
+
+// Load local model with Transformers.js
+// Generate SQL with API (via background script to bypass CORS)
+async function generateWithAPI(prompt, tableContext) {
+  const apiKey = apiKeyInput.value.trim();
+  const provider = apiProviderSelect.value;
+  
+  if (!apiKey) {
+    throw new Error('Please enter an API key');
+  }
+  
+  // Set endpoint based on provider
+  let endpoint;
+  if (provider === 'anthropic') {
+    endpoint = 'https://api.anthropic.com/v1/messages';
+  } else if (provider === 'openai') {
+    endpoint = 'https://api.openai.com/v1/chat/completions';
+  } else {
+    endpoint = apiEndpointInput.value.trim();
+    if (!endpoint) {
+      throw new Error('Please enter a custom API endpoint URL');
+    }
+  }
+  
+  const fullPrompt = buildPrompt(tableContext, prompt);
+  
+  let requestBody, headers = {
+    'Content-Type': 'application/json'
+  };
+  
+  if (provider === 'anthropic') {
+    headers['x-api-key'] = apiKey;
+    headers['anthropic-version'] = '2023-06-01';
+    headers['anthropic-dangerous-direct-browser-access'] = 'true';
+    requestBody = {
+      model: 'claude-3-haiku-20240307',
+      max_tokens: 1024,
+      messages: [{ role: 'user', content: fullPrompt }]
+    };
+  } else {
+    // OpenAI compatible
+    headers['Authorization'] = `Bearer ${apiKey}`;
+    requestBody = {
+      model: provider === 'openai' ? 'gpt-4o-mini' : 'gpt-3.5-turbo',
+      messages: [
+        { role: 'user', content: fullPrompt }
+      ],
+      max_tokens: 512,
+      temperature: 0.3
+    };
+  }
+  
+  // Send request via background script to bypass CORS
+  const response = await browser.runtime.sendMessage({
+    type: 'API_REQUEST',
+    payload: {
+      endpoint,
+      headers,
+      body: requestBody
+    }
+  });
+  
+  if (!response.success) {
+    throw new Error(response.error || 'API request failed');
+  }
+  
+  const data = response.data;
+  
+  let generated;
+  if (provider === 'anthropic') {
+    generated = data.content?.[0]?.text || '';
+  } else {
+    generated = data.choices?.[0]?.message?.content || '';
+  }
+  
+  // Clean up SQL from response
+  generated = generated.replace(/```sql\n?/g, '').replace(/```\n?/g, '').trim();
+  
+  // Try to extract just the SQL if there's extra text
+  const selectMatch = generated.match(/(SELECT[\s\S]*?;)/i);
+  if (selectMatch) {
+    generated = selectMatch[1].trim();
+  }
+  
+  return generated;
+}
+
+// Generate SQL button handler
+generateSQLBtn.addEventListener('click', async () => {
+  const prompt = assistantPrompt.value.trim();
+  if (!prompt) {
+    statusEl.textContent = 'Please enter a description of what you want to query';
+    return;
+  }
+  
+  // Show loading state
+  generateSQLBtn.disabled = true;
+  generateSQLBtn.classList.add('btn-loading');
+  generateSQLBtn.innerHTML = '<span class="spinner"></span>Generating...';
+  assistantOutput.classList.add('hidden');
+  
+  try {
+    const tableContext = await buildTableContext();
+    const generatedSQL = await generateWithAPI(prompt, tableContext);
+    
+    generatedSQLEl.textContent = generatedSQL;
+    assistantOutput.classList.remove('hidden');
+    statusEl.textContent = 'SQL generated successfully';
+    
+  } catch (err) {
+    console.error('Generation error:', err);
+    statusEl.textContent = `Generation error: ${err.message}`;
+  } finally {
+    // Reset button state
+    generateSQLBtn.disabled = false;
+    generateSQLBtn.classList.remove('btn-loading');
+    generateSQLBtn.innerHTML = 'Generate SQL';
+  }
+});
+
+// Copy generated SQL
+copyGeneratedBtn.addEventListener('click', () => {
+  navigator.clipboard.writeText(generatedSQLEl.textContent);
+  statusEl.textContent = 'SQL copied to clipboard';
+});
+
+// Use generated SQL
+useGeneratedBtn.addEventListener('click', () => {
+  sqlEl.value = generatedSQLEl.textContent;
+  statusEl.textContent = 'SQL loaded into editor';
+  sqlEl.focus();
+});
+
+// Allow Enter to generate (with Ctrl/Cmd)
+assistantPrompt.addEventListener('keydown', (e) => {
+  if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+    e.preventDefault();
+    generateSQLBtn.click();
+  }
+});
+
 // --- Boot DuckDB ---
 const bundle = await duckdb.selectBundle(MANUAL_BUNDLES);
 
@@ -1052,5 +1396,6 @@ browser.runtime.onMessage.addListener((msg) => {
 // --- Initialize ---
 initTheme();
 initHistory();
+await loadPromptTemplate();
 checkPendingCodes();
 await updateTablesDropdown();

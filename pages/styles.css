@@ -707,3 +707,186 @@ textarea:focus {
   background: var(--danger);
   color: white;
 }
+
+/* LLM SQL Assistant Styles */
+.assistant-card {
+  border-left: 3px solid var(--primary);
+}
+
+.assistant-body {
+  transition: max-height 0.3s ease, opacity 0.3s ease;
+  overflow: hidden;
+}
+
+.assistant-body.collapsed {
+  max-height: 0;
+  opacity: 0;
+  padding: 0;
+  margin: 0;
+}
+
+.assistant-mode-selector {
+  display: flex;
+  gap: 1rem;
+  padding: 0.5rem;
+  background: var(--bg-secondary);
+  border-radius: 4px;
+}
+
+.radio-label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+  font-size: 0.9rem;
+  color: var(--text-primary);
+}
+
+.radio-label input[type="radio"] {
+  width: auto;
+  margin: 0;
+}
+
+.api-config, .local-config {
+  padding: 0.5rem;
+  background: var(--bg-secondary);
+  border-radius: 4px;
+  margin-bottom: 0.5rem;
+}
+
+.assistant-input-container {
+  display: flex;
+  gap: 0.5rem;
+  align-items: flex-start;
+}
+
+.assistant-input-container textarea {
+  flex: 1;
+  min-height: 60px;
+  resize: vertical;
+}
+
+.assistant-input-container button {
+  height: 60px;
+  padding: 0 1.5rem;
+}
+
+.assistant-output {
+  margin-top: 1rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.output-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.5rem 1rem;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border);
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.output-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.generated-sql {
+  margin: 0;
+  padding: 1rem;
+  background: var(--bg-tertiary);
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 200px;
+  overflow-y: auto;
+  color: var(--text-primary);
+}
+
+.progress-container {
+  margin-top: 0.5rem;
+}
+
+.progress-bar {
+  height: 8px;
+  background: var(--bg-secondary);
+  border-radius: 4px;
+  overflow: hidden;
+  margin-bottom: 0.25rem;
+}
+
+.progress-fill {
+  height: 100%;
+  background: var(--primary);
+  width: 0%;
+  transition: width 0.3s ease;
+}
+
+.assistant-status {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+#modelStatus {
+  font-size: 0.7rem;
+}
+
+#modelStatus.loading {
+  background: var(--info);
+  animation: pulse 1.5s infinite;
+}
+
+#modelStatus.ready {
+  background: var(--success);
+}
+
+#modelStatus.error {
+  background: var(--danger);
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+
+/* Loading spinner */
+.spinner {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(255,255,255,0.3);
+  border-radius: 50%;
+  border-top-color: #fff;
+  animation: spin 0.8s linear infinite;
+  margin-right: 0.5rem;
+  vertical-align: middle;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.btn-loading {
+  position: relative;
+  pointer-events: none;
+  opacity: 0.85;
+}
+
+/* Context info for assistant */
+.context-info {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  padding: 0.5rem;
+  background: var(--bg-secondary);
+  border-radius: 4px;
+  margin-bottom: 0.5rem;
+}
+
+.context-info strong {
+  color: var(--primary);
+}

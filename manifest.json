@@ -4,7 +4,15 @@
   "version": "1.0",
   "description": "Analyze CSO data with DuckDB in your side panel.",
   "permissions": ["menus", "storage"],
-  "host_permissions": ["https://ws.cso.ie/*"],
+  "host_permissions": [
+    "https://ws.cso.ie/*",
+    "https://api.anthropic.com/*",
+    "https://api.openai.com/*",
+    "https://*.openai.com/*",
+    "https://huggingface.co/*",
+    "https://*.huggingface.co/*",
+    "https://cdn.jsdelivr.net/*"
+  ],
   
   "action": {
     "default_icon": {
@@ -48,6 +56,7 @@
   },
   
   "background": {
-    "scripts": ["dist/background.js"]
+    "scripts": ["dist/background.js"],
+    "type": "module"
   }
 }
