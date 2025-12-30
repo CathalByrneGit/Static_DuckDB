@@ -1,4 +1,8 @@
 {
+  "name": "pxstat-workbench",
+  "version": "1.0.0",
+  "description": "Firefox extension for analyzing CSO PXStat data with DuckDB",
+  "type": "module",
   "scripts": {
     "build": "npm run copy-files && vite build",
     "copy-files": "npm run copy-wasm && npm run copy-html && npm run copy-css",
@@ -7,5 +11,11 @@
     "copy-css": "mkdir -p dist/pages && cp pages/styles.css dist/pages/",
     "watch": "vite build --watch",
     "dev": "npm run build && npm run watch"
+  },
+  "dependencies": {
+    "@duckdb/duckdb-wasm": "^1.33.1"
+  },
+  "devDependencies": {
+    "vite": "^7.3.0"
   }
 }

@@ -2,12 +2,12 @@ import * as duckdb from '@duckdb/duckdb-wasm';
 
 const MANUAL_BUNDLES = {
     mvp: {
-        mainModule: browser.runtime.getURL('export/lib/duckdb-mvp.wasm'),
-        mainWorker: browser.runtime.getURL('export/lib/duckdb-browser-mvp.worker.js'),
+        mainModule: browser.runtime.getURL('dist/export/lib/duckdb-mvp.wasm'),
+        mainWorker: browser.runtime.getURL('dist/export/lib/duckdb-browser-mvp.worker.js'),
     },
     eh: {
-        mainModule: browser.runtime.getURL('export/lib/duckdb-eh.wasm'),
-        mainWorker: browser.runtime.getURL('export/lib/duckdb-browser-eh.worker.js'),
+        mainModule: browser.runtime.getURL('dist/export/lib/duckdb-eh.wasm'),
+        mainWorker: browser.runtime.getURL('dist/export/lib/duckdb-browser-eh.worker.js'),
     },
 };
 
@@ -33,11 +33,7 @@ let currentTableData = []; // Store current results for download
 // --- Boot DuckDB ---
 const bundle = await duckdb.selectBundle(MANUAL_BUNDLES);
 
-async function createDuckdbWorker(url) {
-  return new Worker(url, { type: 'module' });
-}
-
-const worker = await createDuckdbWorker(bundle.mainWorker);
+const worker = new Worker(bundle.mainWorker, { type: 'module' });
 const logger = new duckdb.ConsoleLogger();
 const db = new duckdb.AsyncDuckDB(logger, worker);
 await db.instantiate(bundle.mainModule, bundle.pthreadWorker);

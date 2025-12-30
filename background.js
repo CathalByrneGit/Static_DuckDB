@@ -18,8 +18,8 @@ browser.menus.onClicked.addListener((info, tab) => {
   }
 });
 
-// Open full tab when toolbar button is clicked
-browser.browserAction.onClicked.addListener(() => {
+// Add toolbar button handler (optional)
+browser.action.onClicked.addListener(() => {
   browser.tabs.create({
     url: browser.runtime.getURL("dist/pages/index.html")
   });
