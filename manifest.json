@@ -16,10 +16,10 @@
   
   "action": {
     "default_icon": {
-      "48": "icons/pingu-48.svg",
-      "96": "icons/pingu-96.svg"
+      "48": "icons/duckdb-48.svg",
+      "96": "icons/duckdb-96.svg"
     },
-    "default_title": "Open PXStat Workbench"
+    "default_title": "PXStat Workbench"
   },
   
   "options_ui": {
@@ -37,8 +37,8 @@
   },
   
   "icons": {
-    "48": "icons/pingu-48.svg",
-    "96": "icons/pingu-96.svg"
+    "48": "icons/duckdb-48.svg",
+    "96": "icons/duckdb-96.svg"
   },
   
   "web_accessible_resources": [
