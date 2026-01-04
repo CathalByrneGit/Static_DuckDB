@@ -53,7 +53,7 @@ A powerful Firefox extension for analyzing CSO Ireland PXStat datasets using Duc
    - Select the `manifest.json` file
 
 ### Firefox Add-ons Store
-*Coming soon*
+[*Link*](https://addons.mozilla.org/en-US/firefox/addon/pxstat-workbench/)
 
 ## Usage
 
