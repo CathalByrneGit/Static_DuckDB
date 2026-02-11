@@ -102,6 +102,10 @@ async function applyShareState(state) {
       ));
     }
   }
+  // Auto-run the query so the recipient sees results immediately
+  if (state.q && state.t) {
+    runBtn.click();
+  }
 }
 
 function copyShareLink() {
