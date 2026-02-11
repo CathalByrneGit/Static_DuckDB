@@ -154,6 +154,7 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 
 /* Inputs */
 input[type="text"],
+input[type="password"],
 select,
 textarea {
   padding: 0.5rem;
@@ -172,6 +173,7 @@ textarea {
 }
 
 input[type="text"]:focus,
+input[type="password"]:focus,
 select:focus,
 textarea:focus {
   outline: none;
@@ -549,7 +551,7 @@ textarea:focus {
   display: flex;
   flex-direction: column;
   gap: 1rem;
-  overflow: hidden;
+  overflow-y: auto;
 }
 
 .sidebar-section {
@@ -559,22 +561,22 @@ textarea:focus {
 }
 
 .sidebar-section.catalog {
-  flex: 1;
-  min-height: 0;
+  flex: 1 1 auto;
+  min-height: 200px;
   max-height: 500px;
   overflow: hidden;
 }
 
 .sidebar-section.catalog .card {
-  display: flex; 
-  flex-direction: column; 
+  display: flex;
+  flex-direction: column;
   height: 100%;
   overflow: hidden;
 }
 
 .sidebar-section.columns {
-  flex: 0 0 250px;
-  min-height: 0;
+  flex: 0 1 250px;
+  min-height: 120px;
 }
 
 /* Catalog */
