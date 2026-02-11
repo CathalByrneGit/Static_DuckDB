@@ -200,18 +200,22 @@ GET https://ws.cso.ie/public/api.restful/PxStat.Data.Cube_API.ReadDataset/{CODE}
 - Firefox only (Chrome version would need manifest v3 adjustments)
 - No persistence (data lost on page reload)
 - Limited to browser memory constraints
-- No query history (yet)
+
+## Completed Enhancements
+- [x] Add query history/favorites
+- [x] Implement dark mode
+- [x] LLM SQL Assistant (Anthropic, OpenAI, custom endpoints)
+- [x] Query sharing via `pxstat://` links (see [QUERY-SHARING.md](QUERY-SHARING.md))
+- [x] Auto-run shared queries on import
 
 ## Future Enhancements
-- [ ] Add query history/favorites
-- [ ] Implement dark mode
 - [ ] Add chart visualization
 - [ ] Support Parquet export
 - [ ] Add keyboard shortcuts panel
 - [ ] Implement query templates
 - [ ] Add table relationship discovery
-- [ ] Support bookmark/save workspace
-- [ ] LLM for SQL query (api or transformer.js)
+- [ ] Multi-table share links (for joins)
+- [ ] Named/described share links
 
 ## Development Workflow
 
