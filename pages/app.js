@@ -291,6 +291,7 @@ function renderHistory() {
           <button class="favorite-btn ${item.favorite ? 'active' : ''}" data-action="favorite" title="Toggle favorite">
             ${item.favorite ? '★' : '☆'}
           </button>
+          <button data-action="share" title="Share this query">🔗</button>
           <button data-action="copy" title="Copy to clipboard">📋</button>
           <button data-action="delete" title="Delete">🗑️</button>
         </div>
@@ -327,6 +328,17 @@ function renderHistory() {
         
         if (action === 'favorite') {
           toggleFavorite(id);
+        } else if (action === 'share') {
+          const entry = queryHistory.find(q => q.id === id);
+          if (entry) {
+            const state = {};
+            const tableCode = tableInput.value.trim();
+            if (tableCode) state.t = tableCode;
+            state.q = entry.query;
+            const encoded = btoa(JSON.stringify(state));
+            navigator.clipboard.writeText(`pxstat://${encoded}`);
+            statusEl.textContent = 'Share link for query copied to clipboard';
+          }
         } else if (action === 'copy') {
           const entry = queryHistory.find(q => q.id === id);
           if (entry) {
