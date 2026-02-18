@@ -44,6 +44,107 @@ let currentTableData = []; // Store current results for download
 let queryHistory = []; // Store query history
 let currentHistoryTab = 'recent'; // 'recent' or 'favorites'
 
+// --- Search Sharing via URL Hash ---
+function encodeShareState() {
+  const state = {};
+  const tableCode = tableInput.value.trim();
+  const sql = sqlEl.value.trim();
+  const search = catalogSearch.value.trim();
+
+  if (tableCode) state.t = tableCode;
+  if (sql) state.q = sql;
+  if (search) state.s = search;
+
+  return Object.keys(state).length > 0
+    ? btoa(JSON.stringify(state))
+    : '';
+}
+
+function decodeShareState(encoded) {
+  try {
+    return JSON.parse(atob(encoded));
+  } catch {
+    return null;
+  }
+}
+
+function updateUrlHash() {
+  const encoded = encodeShareState();
+  if (encoded) {
+    history.replaceState(null, '', '#' + encoded);
+  } else {
+    history.replaceState(null, '', location.pathname);
+  }
+}
+
+async function applyShareState(state) {
+  if (!state) return;
+
+  if (state.t) {
+    tableInput.value = state.t;
+    statusEl.textContent = `Prepopulated table code: ${state.t}`;
+  }
+  if (state.q) {
+    sqlEl.value = state.q;
+  }
+  if (state.s) {
+    catalogSearch.value = state.s;
+  }
+  // Auto-load the table if a code was shared
+  if (state.t) {
+    await loadPxStat();
+    // If a catalog search was shared, trigger the filter after catalog loads
+    if (state.s && fullCatalogItems.length > 0) {
+      const term = state.s.toLowerCase();
+      renderCatalog(fullCatalogItems.filter(i =>
+        i.id.toLowerCase().includes(term) ||
+        i.title.toLowerCase().includes(term)
+      ));
+    }
+  }
+  // Auto-run the query so the recipient sees results immediately
+  if (state.q && state.t) {
+    runBtn.click();
+  }
+}
+
+function copyShareLink() {
+  const encoded = encodeShareState();
+  if (!encoded) {
+    statusEl.textContent = 'Nothing to share. Load a table or enter a query first.';
+    return;
+  }
+  const shareText = `pxstat://${encoded}`;
+  navigator.clipboard.writeText(shareText).then(() => {
+    statusEl.textContent = 'Share link copied to clipboard';
+    updateUrlHash();
+  });
+}
+
+function loadShareFromClipboard() {
+  navigator.clipboard.readText().then(async (text) => {
+    text = text.trim();
+    let encoded = null;
+    if (text.startsWith('pxstat://')) {
+      encoded = text.replace('pxstat://', '');
+    }
+    if (encoded) {
+      const state = decodeShareState(encoded);
+      if (state) {
+        await applyShareState(state);
+        updateUrlHash();
+        statusEl.textContent = 'Shared search loaded successfully';
+      } else {
+        statusEl.textContent = 'Invalid share link format';
+      }
+    } else {
+      statusEl.textContent = 'No valid share link found in clipboard';
+    }
+  }).catch(() => {
+    statusEl.textContent = 'Could not read clipboard. Please paste the share link manually.';
+  });
+}
+
 // --- Theme Management ---
 function initTheme() {
   // Check for saved theme preference or system preference
@@ -194,6 +295,7 @@ function renderHistory() {
           <button class="favorite-btn ${item.favorite ? 'active' : ''}" data-action="favorite" title="Toggle favorite">
             ${item.favorite ? '★' : '☆'}
           </button>
+          <button data-action="share" title="Share this query">🔗</button>
           <button data-action="copy" title="Copy to clipboard">📋</button>
           <button data-action="delete" title="Delete">🗑️</button>
         </div>
@@ -230,6 +332,17 @@ function renderHistory() {
         
         if (action === 'favorite') {
           toggleFavorite(id);
+        } else if (action === 'share') {
+          const entry = queryHistory.find(q => q.id === id);
+          if (entry) {
+            const state = {};
+            const tableCode = tableInput.value.trim();
+            if (tableCode) state.t = tableCode;
+            state.q = entry.query;
+            const encoded = btoa(JSON.stringify(state));
+            navigator.clipboard.writeText(`pxstat://${encoded}`);
+            statusEl.textContent = 'Share link for query copied to clipboard';
+          }
         } else if (action === 'copy') {
           const entry = queryHistory.find(q => q.id === id);
           if (entry) {
@@ -727,27 +840,30 @@ function filterTable() {
   const tableEl = document.getElementById('resultTable');
   const tbody = tableEl.querySelector('tbody');
   const filters = {};
-  
-  // Get all filter values
+
+  // Get all filter values with their actual column index
   tableEl.querySelectorAll('th input').forEach(input => {
-    const col = input.dataset.column;
     const val = input.value.toLowerCase();
-    if (val) filters[col] = val;
+    if (val) {
+      const th = input.closest('th');
+      const colIndex = parseInt(th.dataset.columnIndex);
+      filters[colIndex] = val;
+    }
   });
-  
+
   // Filter rows
   const rows = tbody.querySelectorAll('tr');
   rows.forEach(row => {
     const cells = row.querySelectorAll('td');
     let show = true;
-    
-    Object.keys(filters).forEach((col, index) => {
-      const cellText = cells[index]?.textContent.toLowerCase() || '';
-      if (!cellText.includes(filters[col])) {
+
+    Object.keys(filters).forEach(colIndex => {
+      const cellText = cells[colIndex]?.textContent.toLowerCase() || '';
+      if (!cellText.includes(filters[colIndex])) {
         show = false;
       }
     });
-    
+
     row.style.display = show ? '' : 'none';
   });
 }
@@ -1238,8 +1354,8 @@ async function updateJoinDropdowns() {
 function normalizeRow_view(row) {
   let obj = row instanceof Map ? Object.fromEntries(row) : row;
   for (let key in obj) {
-    if (typeof obj[key] === 'Bigint') {
-      obj[key] = Number(obj[key]); 
+    if (typeof obj[key] === 'bigint') {
+      obj[key] = Number(obj[key]);
     }
   }
   return obj;
@@ -1304,7 +1420,7 @@ async function checkPendingCodes() {
     document.getElementById("table").value = data.pendingTableCode;
     statusEl.textContent = `Received ${data.pendingTableCode} via right-click.`;
     await browser.storage.local.remove("pendingTableCode");
-    loadPxStat(); 
+    await loadPxStat();
   }
 }
 
@@ -1346,22 +1462,36 @@ document.getElementById("saveView").onclick = saveAsView;
 
 catalogBtn.onclick = async () => {
   catalogStatus.textContent = "Fetching...";
-  const payload = { 
-    jsonrpc: "2.0", 
-    method: "PxStat.Data.Cube_API.ReadCollection", 
-    params: { language: "en", datefrom: "2024-01-01" } 
-  };
-  const resp = await fetch("https://ws.cso.ie/public/api.jsonrpc", { 
-    method: "POST", 
-    body: JSON.stringify(payload) 
-  });
-  const data = await resp.json();
-  fullCatalogItems = data.result.link.item.map(i => ({ 
-    id: i.extension.matrix, 
-    title: i.label 
-  }));
-  renderCatalog(fullCatalogItems);
-  catalogStatus.textContent = `Loaded ${fullCatalogItems.length} tables.`;
+  catalogBtn.disabled = true;
+  try {
+    const payload = {
+      jsonrpc: "2.0",
+      method: "PxStat.Data.Cube_API.ReadCollection",
+      params: { language: "en", datefrom: "2024-01-01" }
+    };
+    const resp = await fetch("https://ws.cso.ie/public/api.jsonrpc", {
+      method: "POST",
+      body: JSON.stringify(payload)
+    });
+    if (!resp.ok) {
+      throw new Error(`HTTP ${resp.status}`);
+    }
+    const data = await resp.json();
+    if (!data.result?.link?.item) {
+      throw new Error('Unexpected API response format');
+    }
+    fullCatalogItems = data.result.link.item.map(i => ({
+      id: i.extension.matrix,
+      title: i.label
+    }));
+    renderCatalog(fullCatalogItems);
+    catalogStatus.textContent = `Loaded ${fullCatalogItems.length} tables.`;
+  } catch (err) {
+    console.error('Catalog load error:', err);
+    catalogStatus.textContent = `Failed to load catalog: ${err.message}`;
+  } finally {
+    catalogBtn.disabled = false;
+  }
 };
 
 catalogSearch.oninput = (e) => {
@@ -1385,6 +1515,8 @@ sqlEl.onkeydown = (e) => {
 
 document.getElementById("downloadCsv").addEventListener("click", downloadCSV);
 document.getElementById("checkOverlap").onclick = checkKeyOverlap;
+document.getElementById("shareSearch").addEventListener("click", copyShareLink);
+document.getElementById("importSearch").addEventListener("click", loadShareFromClipboard);
 
 browser.runtime.onMessage.addListener((msg) => {
   if (msg.type === "LOAD_FROM_CONTEXT") {
@@ -1397,5 +1529,13 @@ browser.runtime.onMessage.addListener((msg) => {
 initTheme();
 initHistory();
 await loadPromptTemplate();
-checkPendingCodes();
+await checkPendingCodes();
 await updateTablesDropdown();
+
+// Check URL hash for shared state on load
+const hashState = location.hash.length > 1
+  ? decodeShareState(location.hash.substring(1))
+  : null;
+if (hashState) {
+  await applyShareState(hashState);
+}
