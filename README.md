@@ -269,6 +269,3 @@ MIT License - See LICENSE file for details
 - ✅ Right-click integration
 - ✅ Native table rendering (no external dependencies)
 
----
-
-**Made with ❤️ for data analysts working with Irish statistics**
