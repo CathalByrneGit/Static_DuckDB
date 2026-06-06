@@ -1,4 +1,4 @@
-import * as duckdb from '@duckdb/duckdb-wasm'; 
+import * as duckdb from '@duckdb/duckdb-wasm';
 
 const MANUAL_BUNDLES = {
     mvp: {
@@ -39,10 +39,29 @@ const historyTabs = document.querySelectorAll(".history-tab");
 const themeLightBtn = document.getElementById("themeLight");
 const themeDarkBtn = document.getElementById("themeDark");
 
+// Pagination elements
+const paginationControls = document.getElementById("paginationControls");
+const pageInfoEl = document.getElementById("pageInfo");
+const prevPageBtn = document.getElementById("prevPage");
+const nextPageBtn = document.getElementById("nextPage");
+const resultsMetaEl = document.getElementById("resultsMeta");
+
 let fullCatalogItems = [];
 let currentTableData = []; // Store current results for download
 let queryHistory = []; // Store query history
 let currentHistoryTab = 'recent'; // 'recent' or 'favorites'
+
+// Pagination state
+const PAGE_SIZE = 100;
+let paginationState = {
+  baseQuery: '',
+  currentPage: 0,
+  totalRows: 0,
+  executionTime: 0,
+  sortColumn: null,
+  sortDirection: null,
+  columns: []
+};
 
 // --- Search Sharing via URL Hash ---
 function encodeShareState() {
@@ -90,10 +109,8 @@ async function applyShareState(state) {
   if (state.s) {
     catalogSearch.value = state.s;
   }
-  // Auto-load the table if a code was shared
   if (state.t) {
     await loadPxStat();
-    // If a catalog search was shared, trigger the filter after catalog loads
     if (state.s && fullCatalogItems.length > 0) {
       const term = state.s.toLowerCase();
       renderCatalog(fullCatalogItems.filter(i =>
@@ -102,7 +119,6 @@ async function applyShareState(state) {
       ));
     }
   }
-  // Auto-run the query so the recipient sees results immediately
   if (state.q && state.t) {
     runBtn.click();
   }
@@ -147,7 +163,6 @@ function loadShareFromClipboard() {
 
 // --- Theme Management ---
 function initTheme() {
-  // Check for saved theme preference or system preference
   const savedTheme = localStorage.getItem('pxstat-theme');
   if (savedTheme) {
     setTheme(savedTheme);
@@ -174,7 +189,6 @@ function setTheme(theme) {
 themeLightBtn.addEventListener('click', () => setTheme('light'));
 themeDarkBtn.addEventListener('click', () => setTheme('dark'));
 
-// Listen for system theme changes
 window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e) => {
   if (!localStorage.getItem('pxstat-theme')) {
     setTheme(e.matches ? 'dark' : 'light');
@@ -195,9 +209,7 @@ function initHistory() {
 }
 
 function saveHistory() {
-  // Keep only the last 100 queries
   if (queryHistory.length > 100) {
-    // Keep favorites and most recent
     const favorites = queryHistory.filter(q => q.favorite);
     const nonFavorites = queryHistory.filter(q => !q.favorite).slice(0, 100 - favorites.length);
     queryHistory = [...favorites, ...nonFavorites];
@@ -206,13 +218,10 @@ function saveHistory() {
 }
 
 function addToHistory(query, success = true, rowCount = 0, executionTime = 0) {
-  // Don't add empty queries or duplicates of the last query
   const trimmedQuery = query.trim();
   if (!trimmedQuery) return;
-  
-  // Check if this exact query is already the most recent
+
   if (queryHistory.length > 0 && queryHistory[0].query === trimmedQuery) {
-    // Update the existing entry instead
     queryHistory[0].timestamp = Date.now();
     queryHistory[0].success = success;
     queryHistory[0].rowCount = rowCount;
@@ -221,7 +230,7 @@ function addToHistory(query, success = true, rowCount = 0, executionTime = 0) {
     renderHistory();
     return;
   }
-  
+
   const entry = {
     id: Date.now(),
     query: trimmedQuery,
@@ -231,7 +240,7 @@ function addToHistory(query, success = true, rowCount = 0, executionTime = 0) {
     executionTime,
     favorite: false
   };
-  
+
   queryHistory.unshift(entry);
   saveHistory();
   renderHistory();
@@ -262,31 +271,31 @@ function clearHistory() {
 
 function formatTimeAgo(timestamp) {
   const seconds = Math.floor((Date.now() - timestamp) / 1000);
-  
+
   if (seconds < 60) return 'Just now';
   if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
   if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
   if (seconds < 604800) return `${Math.floor(seconds / 86400)}d ago`;
-  
+
   return new Date(timestamp).toLocaleDateString();
 }
 
 function renderHistory() {
-  const items = currentHistoryTab === 'favorites' 
+  const items = currentHistoryTab === 'favorites'
     ? queryHistory.filter(q => q.favorite)
     : queryHistory;
-  
+
   if (items.length === 0) {
     historyList.innerHTML = `
       <div class="empty-state">
-        ${currentHistoryTab === 'favorites' 
-          ? 'No favorite queries yet. Click the ★ on a query to add it.' 
+        ${currentHistoryTab === 'favorites'
+          ? 'No favorite queries yet. Click the ★ on a query to add it.'
           : 'No queries yet. Run a query to see it here.'}
       </div>
     `;
     return;
   }
-  
+
   historyList.innerHTML = items.map(item => `
     <div class="history-item ${item.favorite ? 'favorite' : ''}" data-id="${item.id}">
       <div class="history-item-header">
@@ -302,19 +311,17 @@ function renderHistory() {
       </div>
       <div class="history-item-query">${escapeHtml(truncateQuery(item.query, 150))}</div>
       <div class="history-item-meta">
-        ${item.success 
-          ? `<span class="badge" style="background: var(--success);">${item.rowCount} rows</span>` 
+        ${item.success
+          ? `<span class="badge" style="background: var(--success);">${item.rowCount} rows</span>`
           : `<span class="badge" style="background: var(--danger);">Error</span>`}
         ${item.executionTime > 0 ? `<span>${item.executionTime}ms</span>` : ''}
       </div>
     </div>
   `).join('');
-  
-  // Add event listeners
+
   historyList.querySelectorAll('.history-item').forEach(el => {
     const id = parseInt(el.dataset.id);
-    
-    // Click on item to load query
+
     el.addEventListener('click', (e) => {
       if (e.target.closest('.history-item-actions')) return;
       const entry = queryHistory.find(q => q.id === id);
@@ -323,13 +330,12 @@ function renderHistory() {
         statusEl.textContent = 'Query loaded from history';
       }
     });
-    
-    // Action buttons
+
     el.querySelectorAll('[data-action]').forEach(btn => {
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
         const action = btn.dataset.action;
-        
+
         if (action === 'favorite') {
           toggleFavorite(id);
         } else if (action === 'share') {
@@ -378,21 +384,18 @@ closeHistory.addEventListener('click', () => {
   historyPanel.classList.remove('open');
 });
 
-// Close history panel when clicking outside
 document.addEventListener('click', (e) => {
-  if (historyPanel.classList.contains('open') && 
-      !historyPanel.contains(e.target) && 
+  if (historyPanel.classList.contains('open') &&
+      !historyPanel.contains(e.target) &&
       e.target !== historyToggle) {
     historyPanel.classList.remove('open');
   }
 });
 
-// Prevent clicks inside panel from closing it
 historyPanel.addEventListener('click', (e) => {
   e.stopPropagation();
 });
 
-// Close with Escape key
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && historyPanel.classList.contains('open')) {
     historyPanel.classList.remove('open');
@@ -425,13 +428,11 @@ const apiKeyInput = document.getElementById('apiKey');
 const apiProviderSelect = document.getElementById('apiProvider');
 const customEndpointRow = document.getElementById('customEndpointRow');
 
-// Toggle assistant panel
 toggleAssistantBtn.addEventListener('click', () => {
   assistantBody.classList.toggle('collapsed');
   toggleAssistantBtn.textContent = assistantBody.classList.contains('collapsed') ? '▶' : '▼';
 });
 
-// Show/hide custom endpoint input
 apiProviderSelect.addEventListener('change', () => {
   if (apiProviderSelect.value === 'custom') {
     customEndpointRow.classList.remove('hidden');
@@ -440,7 +441,6 @@ apiProviderSelect.addEventListener('change', () => {
   }
 });
 
-// Load saved API config (provider only - NEVER store API key)
 const savedApiConfig = localStorage.getItem('pxstat-api-config');
 if (savedApiConfig) {
   try {
@@ -453,7 +453,6 @@ if (savedApiConfig) {
   } catch (e) {}
 }
 
-// Save API config on change (NEVER store API key)
 [apiEndpointInput, apiProviderSelect].forEach(el => {
   el.addEventListener('change', () => {
     localStorage.setItem('pxstat-api-config', JSON.stringify({
@@ -463,46 +462,43 @@ if (savedApiConfig) {
   });
 });
 
-// Build context from loaded tables
 async function buildTableContext() {
   try {
     const tablesRes = await conn.query(`
-      SELECT table_name as name FROM duckdb_tables() 
+      SELECT table_name as name FROM duckdb_tables()
       WHERE schema_name = 'main' AND internal = false
     `);
     const tables = tablesRes.toArray().map(r => normalizeRow(r).name);
-    
+
     if (tables.length === 0) {
       return "No tables loaded yet. Load a PXStat table first.";
     }
-    
+
     let context = "";
-    let allColumns = {}; // Track columns per table for join analysis
-    
-    // First pass: gather all table schemas
+    let allColumns = {};
+
     for (const tableName of tables) {
       const schemaRes = await conn.query(`DESCRIBE ${tableName};`);
       const columns = schemaRes.toArray().map(r => normalizeRow(r));
-      
+
       allColumns[tableName] = columns.map(c => c.column_name);
-      
+
       context += `\nTable: ${tableName}\nColumns:\n`;
       columns.forEach(col => {
         context += `  - ${col.column_name} (${col.column_type})\n`;
       });
-      
-      // Get sample values for non-numeric columns (helps LLM understand data)
+
       const sampleCols = columns
         .filter(c => !c.column_type.includes('DOUBLE') && !c.column_type.includes('FLOAT'))
         .slice(0, 4);
-      
+
       if (sampleCols.length > 0) {
         context += `Sample values:\n`;
         for (const col of sampleCols) {
           try {
             const sampleRes = await conn.query(`
-              SELECT DISTINCT "${col.column_name}" as val 
-              FROM ${tableName} 
+              SELECT DISTINCT "${col.column_name}" as val
+              FROM ${tableName}
               WHERE "${col.column_name}" IS NOT NULL
               LIMIT 5
             `);
@@ -514,24 +510,23 @@ async function buildTableContext() {
         }
       }
     }
-    
-    // Second pass: identify potential join keys between tables
+
     if (tables.length > 1) {
       context += `\n# Potential Join Keys\n`;
       context += `The following columns exist in multiple tables and can be used for JOINs:\n`;
-      
+
       const tableNames = Object.keys(allColumns);
       const joinSuggestions = [];
-      
+
       for (let i = 0; i < tableNames.length; i++) {
         for (let j = i + 1; j < tableNames.length; j++) {
           const tableA = tableNames[i];
           const tableB = tableNames[j];
           const colsA = allColumns[tableA];
           const colsB = allColumns[tableB];
-          
+
           const commonCols = colsA.filter(c => colsB.includes(c));
-          
+
           if (commonCols.length > 0) {
             joinSuggestions.push(
               `- ${tableA} <-> ${tableB}: can join on "${commonCols.join('", "')}"`
@@ -539,7 +534,7 @@ async function buildTableContext() {
           }
         }
       }
-      
+
       if (joinSuggestions.length > 0) {
         context += joinSuggestions.join('\n') + '\n';
         context += `\nExample JOIN syntax:\n`;
@@ -550,7 +545,7 @@ async function buildTableContext() {
         context += `- No common column names found between tables. Manual key selection required.\n`;
       }
     }
-    
+
     return context;
   } catch (err) {
     console.error('Error building context:', err);
@@ -558,7 +553,6 @@ async function buildTableContext() {
   }
 }
 
-// Load the prompt template from external file
 let promptTemplate = null;
 
 async function loadPromptTemplate() {
@@ -578,7 +572,6 @@ async function loadPromptTemplate() {
   }
 }
 
-// Fallback prompt if file can't be loaded
 function getFallbackPrompt() {
   return `# DuckDB SQL Assistant
 
@@ -603,46 +596,44 @@ You are an SQL assistant for a DuckDB database containing Irish CSO PXStat stati
 ## SQL Query`;
 }
 
-// Build the final prompt with context injected
 function buildPrompt(tableContext, userPrompt) {
   if (!promptTemplate) {
     promptTemplate = getFallbackPrompt();
   }
-  
+
   return promptTemplate
     .replace('{{TABLE_CONTEXT}}', tableContext)
     .replace('{{USER_PROMPT}}', userPrompt);
 }
 
-// Load local model with Transformers.js
-// Generate SQL with API (via background script to bypass CORS)
 async function generateWithAPI(prompt, tableContext) {
   const apiKey = apiKeyInput.value.trim();
   const provider = apiProviderSelect.value;
-  
+
   if (!apiKey) {
     throw new Error('Please enter an API key');
   }
-  
-  // Set endpoint based on provider
+
   let endpoint;
   if (provider === 'anthropic') {
     endpoint = 'https://api.anthropic.com/v1/messages';
   } else if (provider === 'openai') {
     endpoint = 'https://api.openai.com/v1/chat/completions';
+  } else if (provider === 'openrouter') {
+    endpoint = 'https://openrouter.ai/api/v1/chat/completions';
   } else {
     endpoint = apiEndpointInput.value.trim();
     if (!endpoint) {
       throw new Error('Please enter a custom API endpoint URL');
     }
   }
-  
+
   const fullPrompt = buildPrompt(tableContext, prompt);
-  
+
   let requestBody, headers = {
     'Content-Type': 'application/json'
   };
-  
+
   if (provider === 'anthropic') {
     headers['x-api-key'] = apiKey;
     headers['anthropic-version'] = '2023-06-01';
@@ -652,8 +643,17 @@ async function generateWithAPI(prompt, tableContext) {
       max_tokens: 1024,
       messages: [{ role: 'user', content: fullPrompt }]
     };
+  } else if (provider === 'openrouter') {
+    headers['Authorization'] = `Bearer ${apiKey}`;
+    headers['HTTP-Referer'] = browser.runtime.getURL('/');
+    headers['X-Title'] = 'PXStat Workbench';
+    requestBody = {
+      model: 'google/gemini-2.0-flash-001',
+      messages: [{ role: 'user', content: fullPrompt }],
+      max_tokens: 1024,
+      temperature: 0.3
+    };
   } else {
-    // OpenAI compatible
     headers['Authorization'] = `Bearer ${apiKey}`;
     requestBody = {
       model: provider === 'openai' ? 'gpt-4o-mini' : 'gpt-3.5-turbo',
@@ -664,8 +664,7 @@ async function generateWithAPI(prompt, tableContext) {
       temperature: 0.3
     };
   }
-  
-  // Send request via background script to bypass CORS
+
   const response = await browser.runtime.sendMessage({
     type: 'API_REQUEST',
     payload: {
@@ -674,79 +673,71 @@ async function generateWithAPI(prompt, tableContext) {
       body: requestBody
     }
   });
-  
+
   if (!response.success) {
     throw new Error(response.error || 'API request failed');
   }
-  
+
   const data = response.data;
-  
+
   let generated;
   if (provider === 'anthropic') {
     generated = data.content?.[0]?.text || '';
   } else {
     generated = data.choices?.[0]?.message?.content || '';
   }
-  
-  // Clean up SQL from response
+
   generated = generated.replace(/```sql\n?/g, '').replace(/```\n?/g, '').trim();
-  
-  // Try to extract just the SQL if there's extra text
+
   const selectMatch = generated.match(/(SELECT[\s\S]*?;)/i);
   if (selectMatch) {
     generated = selectMatch[1].trim();
   }
-  
+
   return generated;
 }
 
-// Generate SQL button handler
 generateSQLBtn.addEventListener('click', async () => {
   const prompt = assistantPrompt.value.trim();
   if (!prompt) {
     statusEl.textContent = 'Please enter a description of what you want to query';
     return;
   }
-  
-  // Show loading state
+
   generateSQLBtn.disabled = true;
   generateSQLBtn.classList.add('btn-loading');
   generateSQLBtn.innerHTML = '<span class="spinner"></span>Generating...';
   assistantOutput.classList.add('hidden');
-  
+
   try {
     const tableContext = await buildTableContext();
     const generatedSQL = await generateWithAPI(prompt, tableContext);
-    
+
     generatedSQLEl.textContent = generatedSQL;
     assistantOutput.classList.remove('hidden');
     statusEl.textContent = 'SQL generated successfully';
-    
+
   } catch (err) {
     console.error('Generation error:', err);
     statusEl.textContent = `Generation error: ${err.message}`;
   } finally {
-    // Reset button state
     generateSQLBtn.disabled = false;
     generateSQLBtn.classList.remove('btn-loading');
     generateSQLBtn.innerHTML = 'Generate SQL';
   }
 });
 
-// Copy generated SQL
 copyGeneratedBtn.addEventListener('click', () => {
   navigator.clipboard.writeText(generatedSQLEl.textContent);
   statusEl.textContent = 'SQL copied to clipboard';
 });
 
-// Use generated SQL
 useGeneratedBtn.addEventListener('click', () => {
   sqlEl.value = generatedSQLEl.textContent;
   statusEl.textContent = 'SQL loaded into editor';
   sqlEl.focus();
 });
 
-// Allow Enter to generate (with Ctrl/Cmd)
 assistantPrompt.addEventListener('keydown', (e) => {
   if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
     e.preventDefault();
@@ -765,39 +756,144 @@ const conn = await db.connect();
 
 console.log('DuckDB initialized successfully');
 
+// --- Pagination & Query Execution ---
+function stripTrailingSemicolon(query) {
+  return query.replace(/;\s*$/, '');
+}
+
+function buildPagedQuery(baseQuery, sortCol, sortDir, page) {
+  let sql = `SELECT * FROM (${baseQuery}) AS __paged`;
+  if (sortCol) {
+    sql += ` ORDER BY "${sortCol}" ${sortDir}`;
+  }
+  sql += ` LIMIT ${PAGE_SIZE} OFFSET ${page * PAGE_SIZE}`;
+  return sql;
+}
+
+async function executePagedQuery(baseQuery, page, sortCol, sortDir) {
+  const startTime = performance.now();
+
+  const countRes = await conn.query(`SELECT COUNT(*) as cnt FROM (${baseQuery}) AS __paged`);
+  const totalRows = Number(normalizeRow(countRes.toArray()[0]).cnt);
+
+  const pagedSQL = buildPagedQuery(baseQuery, sortCol, sortDir, page);
+  const res = await conn.query(pagedSQL);
+
+  const executionTime = Math.round(performance.now() - startTime);
+
+  paginationState = {
+    baseQuery,
+    currentPage: page,
+    totalRows,
+    executionTime,
+    sortColumn: sortCol,
+    sortDirection: sortDir,
+    columns: res.schema?.fields?.map(f => f.name) || []
+  };
+
+  renderTable(res);
+  updatePaginationUI();
+
+  return { totalRows, executionTime };
+}
+
+function updatePaginationUI() {
+  const { currentPage, totalRows, executionTime, sortColumn, sortDirection } = paginationState;
+  const start = currentPage * PAGE_SIZE + 1;
+  const end = Math.min((currentPage + 1) * PAGE_SIZE, totalRows);
+  const totalPages = Math.ceil(totalRows / PAGE_SIZE);
+
+  if (totalRows === 0) {
+    paginationControls.classList.add('hidden');
+    resultsMetaEl.textContent = `0 rows · ${executionTime}ms`;
+    return;
+  }
+
+  paginationControls.classList.remove('hidden');
+
+  let sortInfo = '';
+  if (sortColumn) {
+    sortInfo = ` · sorted by ${sortColumn} ${sortDirection}`;
+  }
+
+  pageInfoEl.textContent = `Rows ${start.toLocaleString()}–${end.toLocaleString()} of ${totalRows.toLocaleString()}${sortInfo}`;
+  resultsMetaEl.textContent = `${totalRows.toLocaleString()} rows · ${executionTime}ms`;
+
+  prevPageBtn.disabled = currentPage === 0;
+  nextPageBtn.disabled = currentPage >= totalPages - 1;
+}
+
+prevPageBtn.addEventListener('click', async () => {
+  if (paginationState.currentPage > 0) {
+    setBusy(true);
+    try {
+      await executePagedQuery(
+        paginationState.baseQuery,
+        paginationState.currentPage - 1,
+        paginationState.sortColumn,
+        paginationState.sortDirection
+      );
+    } catch (e) {
+      statusEl.textContent = "Pagination error: " + e.message;
+    }
+    setBusy(false);
+  }
+});
+
+nextPageBtn.addEventListener('click', async () => {
+  const totalPages = Math.ceil(paginationState.totalRows / PAGE_SIZE);
+  if (paginationState.currentPage < totalPages - 1) {
+    setBusy(true);
+    try {
+      await executePagedQuery(
+        paginationState.baseQuery,
+        paginationState.currentPage + 1,
+        paginationState.sortColumn,
+        paginationState.sortDirection
+      );
+    } catch (e) {
+      statusEl.textContent = "Pagination error: " + e.message;
+    }
+    setBusy(false);
+  }
+});
+
 // --- Table Rendering Functions ---
 function renderTable(arrowTable) {
   const rows = (arrowTable?.toArray?.() || []).map(normalizeRow);
   const schemaCols = arrowTable?.schema?.fields?.map(f => f.name) || [];
-  
-  // Store for download
+
   currentTableData = rows;
-  
+
   const tableEl = document.getElementById('resultTable');
-  
+
   if (rows.length === 0) {
     tableEl.innerHTML = '<tbody><tr><td>No results</td></tr></tbody>';
     return;
   }
-  
-  // Build table HTML
+
   const thead = `
     <thead>
       <tr>
-        ${schemaCols.map((col, idx) => `
-          <th data-column-index="${idx}">
-            ${col}
-            <input type="text" 
-                   placeholder="Filter..." 
+        ${schemaCols.map((col, idx) => {
+          const isSorted = paginationState.sortColumn === col;
+          const arrow = isSorted
+            ? (paginationState.sortDirection === 'ASC' ? ' ▲' : ' ▼')
+            : '';
+          return `
+          <th data-column-index="${idx}" data-column-name="${col}">
+            ${escapeHtml(col)}<span class="sort-indicator" style="font-size:0.7rem;margin-left:0.25rem;">${arrow}</span>
+            <input type="text"
+                   placeholder="Filter..."
                    data-column="${col}"
                    style="display: block; margin-top: 4px; font-weight: normal;"
                    onclick="event.stopPropagation()">
           </th>
-        `).join('')}
+        `}).join('')}
       </tr>
     </thead>
   `;
-  
+
   const tbody = `
     <tbody>
       ${rows.map(row => `
@@ -807,33 +903,41 @@ function renderTable(arrowTable) {
       `).join('')}
     </tbody>
   `;
-  
+
   tableEl.innerHTML = thead + tbody;
-  
-  // Add filter listeners
+
   tableEl.querySelectorAll('th input').forEach(input => {
     input.addEventListener('input', filterTable);
   });
-  
-  // Add sort listeners
-  tableEl.querySelectorAll('th').forEach((th, index) => {
-    th.style.cursor = 'pointer';
-    th.addEventListener('click', (e) => {
-      if (e.target.tagName !== 'INPUT') {
-        sortTable(index, schemaCols);
+
+  // Column header click: re-query with ORDER BY (datasette-style)
+  tableEl.querySelectorAll('th').forEach(th => {
+    th.addEventListener('click', async (e) => {
+      if (e.target.tagName === 'INPUT') return;
+      if (!paginationState.baseQuery) return;
+
+      const colName = th.dataset.columnName;
+      let newDir = 'ASC';
+      if (paginationState.sortColumn === colName && paginationState.sortDirection === 'ASC') {
+        newDir = 'DESC';
       }
+
+      setBusy(true);
+      try {
+        await executePagedQuery(paginationState.baseQuery, 0, colName, newDir);
+        statusEl.textContent = `Sorted by ${colName} ${newDir}`;
+      } catch (e2) {
+        statusEl.textContent = "Sort error: " + e2.message;
+      }
+      setBusy(false);
     });
   });
-  
-  // Reset sort state
-  sortDirection = {};
-  currentSortColumn = null;
 }
 
 function formatValue(value) {
-  if (value === null || value === undefined) return '';
-  if (typeof value === 'object') return JSON.stringify(value);
-  return String(value);
+  if (value === null || value === undefined) return '<span class="cell-null">null</span>';
+  if (typeof value === 'object') return escapeHtml(JSON.stringify(value));
+  return escapeHtml(String(value));
 }
 
 function filterTable() {
@@ -841,7 +945,6 @@ function filterTable() {
   const tbody = tableEl.querySelector('tbody');
   const filters = {};
 
-  // Get all filter values with their actual column index
   tableEl.querySelectorAll('th input').forEach(input => {
     const val = input.value.toLowerCase();
     if (val) {
@@ -851,7 +954,6 @@ function filterTable() {
     }
   });
 
-  // Filter rows
   const rows = tbody.querySelectorAll('tr');
   rows.forEach(row => {
     const cells = row.querySelectorAll('td');
@@ -868,80 +970,25 @@ function filterTable() {
   });
 }
 
-
-let sortDirection = {};
-let currentSortColumn = null;
-
-function sortTable(columnIndex, columns) {
-  const tableEl = document.getElementById('resultTable');
-  const tbody = tableEl.querySelector('tbody');
-  const rows = Array.from(tbody.querySelectorAll('tr'));
-  const colName = columns[columnIndex];
-  
-  // Toggle sort direction
-  sortDirection[colName] = sortDirection[colName] === 'asc' ? 'desc' : 'asc';
-  const direction = sortDirection[colName];
-  currentSortColumn = columnIndex;
-  
-  // Update header indicators
-  tableEl.querySelectorAll('th').forEach((th, idx) => {
-    const indicator = th.querySelector('.sort-indicator');
-    if (indicator) indicator.remove();
-    
-    if (idx === columnIndex) {
-      const arrow = document.createElement('span');
-      arrow.className = 'sort-indicator';
-      arrow.textContent = direction === 'asc' ? ' ▲' : ' ▼';
-      arrow.style.fontSize = '0.7rem';
-      arrow.style.marginLeft = '0.25rem';
-      th.appendChild(arrow);
-    }
-  });
-  
-  rows.sort((a, b) => {
-    const aVal = a.cells[columnIndex]?.textContent || '';
-    const bVal = b.cells[columnIndex]?.textContent || '';
-    
-    // Try numeric sort first
-    const aNum = parseFloat(aVal);
-    const bNum = parseFloat(bVal);
-    
-    if (!isNaN(aNum) && !isNaN(bNum)) {
-      return direction === 'asc' ? aNum - bNum : bNum - aNum;
-    }
-    
-    // String sort
-    return direction === 'asc' 
-      ? aVal.localeCompare(bVal)
-      : bVal.localeCompare(aVal);
-  });
-  
-  // Re-append rows in sorted order
-  rows.forEach(row => tbody.appendChild(row));
-}
-
 // --- Download as CSV ---
 function downloadCSV() {
   if (currentTableData.length === 0) {
     alert("No data available to download. Run a query first!");
     return;
   }
-  
+
   const tableName = dropdown.value || "cso_data_export";
   const filename = `${tableName}_${new Date().toISOString().slice(0, 10)}.csv`;
-  
-  // Get column names
+
   const columns = Object.keys(currentTableData[0]);
-  
-  // Build CSV
+
   let csv = columns.join(',') + '\n';
-  
+
   currentTableData.forEach(row => {
     const values = columns.map(col => {
       let val = row[col];
       if (val === null || val === undefined) return '';
-      
-      // Escape quotes and wrap in quotes if contains comma/quote/newline
+
       val = String(val);
       if (val.includes(',') || val.includes('"') || val.includes('\n')) {
         val = '"' + val.replace(/"/g, '""') + '"';
@@ -950,14 +997,13 @@ function downloadCSV() {
     });
     csv += values.join(',') + '\n';
   });
-  
-  // Download
+
   const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
   const link = document.createElement('a');
   link.href = URL.createObjectURL(blob);
   link.download = filename;
   link.click();
-  
+
   statusEl.textContent = `Exported ${filename}`;
 }
 
@@ -981,8 +1027,8 @@ function normalizeRow(row) {
 const getSectorName = (id) => {
   const prefix = id.charAt(0).toUpperCase();
   const sectors = {
-    'A': 'Agriculture', 'C': 'Crime/Justice', 'E': 'Economy', 'G': 'Government', 
-    'H': 'Housing', 'L': 'Labour Market', 'M': 'Manufacturing', 'P': 'Population', 
+    'A': 'Agriculture', 'C': 'Crime/Justice', 'E': 'Economy', 'G': 'Government',
+    'H': 'Housing', 'L': 'Labour Market', 'M': 'Manufacturing', 'P': 'Population',
     'R': 'Retail', 'V': 'Vital Stats'
   };
   return sectors[prefix] || 'Other Statistics';
@@ -1005,16 +1051,31 @@ function renderCatalog(items) {
 
     const entry = document.createElement("li");
     entry.className = "list-item list-group-item-action";
-    entry.innerHTML = `<strong>${item.id}</strong> — ${item.title}`;
+    entry.innerHTML = `<strong>${escapeHtml(item.id)}</strong> — ${escapeHtml(item.title)}`;
     entry.onclick = () => { tableInput.value = item.id; };
     catalogList.appendChild(entry);
   });
 }
 
+function getTypeBadgeClass(type) {
+  const t = type.toUpperCase();
+  if (t.includes('INTEGER') || t.includes('SMALLINT') || t.includes('TINYINT') || t.includes('HUGEINT')) return 'type-integer';
+  if (t.includes('BIGINT')) return 'type-bigint';
+  if (t.includes('DOUBLE')) return 'type-double';
+  if (t.includes('FLOAT') || t.includes('REAL')) return 'type-float';
+  if (t.includes('DECIMAL') || t.includes('NUMERIC')) return 'type-decimal';
+  if (t.includes('VARCHAR') || t.includes('TEXT') || t.includes('STRING')) return 'type-varchar';
+  if (t.includes('TIMESTAMP')) return 'type-timestamp';
+  if (t.includes('DATE')) return 'type-date';
+  if (t.includes('BOOLEAN') || t.includes('BOOL')) return 'type-boolean';
+  if (t.includes('BLOB')) return 'type-blob';
+  return 'type-other';
+}
+
 async function loadColumnsFor(tableName) {
   const schemaRes = await conn.query(`DESCRIBE ${tableName};`);
   const columns = schemaRes.toArray().map(r => normalizeRow(r));
-  
+
   columnsList.innerHTML = "";
   const countBadge = document.getElementById("columnCount");
   if (countBadge) countBadge.textContent = columns.length;
@@ -1023,7 +1084,8 @@ async function loadColumnsFor(tableName) {
     const name = col.column_name;
     const type = col.column_type.toUpperCase();
     const isFloat = type.includes("DOUBLE") || type.includes("FLOAT") || type.includes("DECIMAL");
-    
+    const badgeClass = getTypeBadgeClass(type);
+
     const container = document.createElement("li");
     container.className = "column-item";
 
@@ -1031,8 +1093,8 @@ async function loadColumnsFor(tableName) {
     header.className = "column-header";
     header.innerHTML = `
       <div class="text-truncate">
-        <span class="fw-bold" style="color: var(--primary);">${name}</span>
-        <span class="text-muted" style="font-size: 0.7rem;">[${type}]</span>
+        <span class="fw-bold" style="color: var(--primary);">${escapeHtml(name)}</span>
+        <span class="type-badge ${badgeClass}">${type}</span>
       </div>
       ${!isFloat ? '<span class="text-muted" style="font-size: 0.6rem;">▼</span>' : ''}
     `;
@@ -1043,24 +1105,24 @@ async function loadColumnsFor(tableName) {
     if (!isFloat) {
       header.addEventListener("click", async () => {
         const isHidden = valuesArea.classList.contains("hidden");
-        
+
         if (isHidden) {
           valuesArea.classList.remove("hidden");
           valuesArea.innerHTML = "<em>Querying uniques...</em>";
-          
+
           const tempConn = await db.connect();
           try {
             const res = await tempConn.query(`
-              SELECT "${name}" as val, COUNT(*) as qty 
-              FROM "${tableName}" 
-              GROUP BY 1 
-              ORDER BY qty DESC 
+              SELECT "${name}" as val, COUNT(*) as qty
+              FROM "${tableName}"
+              GROUP BY 1
+              ORDER BY qty DESC
               LIMIT 10
             `);
             const rows = res.toArray().map(normalizeRow);
-            
+
             valuesArea.innerHTML = rows.map(r => {
-              const displayVal = r.val === null ? 'NULL' : r.val;
+              const displayVal = r.val === null ? '<span class="cell-null">NULL</span>' : escapeHtml(String(r.val));
               const sqlVal = typeof r.val === 'string' ? `'${r.val}'` : r.val;
 
               return `
@@ -1073,14 +1135,14 @@ async function loadColumnsFor(tableName) {
             valuesArea.querySelectorAll('.value-item').forEach(item => {
               item.onclick = (e) => {
                 e.stopPropagation();
-                const col = item.dataset.col;
+                const colAttr = item.dataset.col;
                 const val = item.dataset.val;
-                
-                sqlEl.value = `-- Summary for ${col} = ${val}\n` +
+
+                sqlEl.value = `-- Summary for ${colAttr} = ${val}\n` +
                               `SELECT * FROM ${dropdown.value} \n` +
-                              `WHERE "${col}" = ${val} \n` +
+                              `WHERE "${colAttr}" = ${val} \n` +
                               `LIMIT 100;`;
-                
+
                 statusEl.textContent = `Generated filter for ${val}`;
                 sqlEl.focus();
               };
@@ -1108,11 +1170,16 @@ async function showSchema() {
     statusEl.textContent = "Please select a table from the dropdown first.";
     return;
   }
-  
+
   setBusy(true);
   try {
     const res = await conn.query(`DESCRIBE ${selected};`);
+    // Schema display bypasses pagination — show all rows directly
+    paginationState = { baseQuery: '', currentPage: 0, totalRows: 0, executionTime: 0, sortColumn: null, sortDirection: null, columns: [] };
+    paginationControls.classList.add('hidden');
     renderTable(res);
+    const rowCount = currentTableData.length;
+    resultsMetaEl.textContent = `${rowCount} columns`;
     statusEl.textContent = `Displaying schema for ${selected}`;
   } catch (err) {
     console.error("Schema Error:", err);
@@ -1127,16 +1194,16 @@ schemaBtn.onclick = showSchema;
 // --- Main App Logic ---
 async function updateTablesDropdown() {
   const res = await conn.query(`
-    SELECT table_name as name, 'Table' as type 
-    FROM duckdb_tables() 
+    SELECT table_name as name, 'Table' as type
+    FROM duckdb_tables()
     WHERE schema_name = 'main' AND internal = false
     UNION ALL
-    SELECT view_name as name, 'View' as type 
-    FROM duckdb_views() 
+    SELECT view_name as name, 'View' as type
+    FROM duckdb_views()
     WHERE schema_name = 'main' AND internal = false
     ORDER BY type, name
   `);
-  
+
   const items = res.toArray().map(r => normalizeRow(r));
 
   dropdown.innerHTML = '<option value="">Select table or view...</option>';
@@ -1146,9 +1213,9 @@ async function updateTablesDropdown() {
     opt.textContent = `${item.type === 'View' ? '📂' : '📊'} ${item.name}`;
     dropdown.appendChild(opt);
   });
-  
+
   metaEl.textContent = `User objects: ${items.length}`;
-  
+
   await updateJoinDropdowns();
   document.getElementById("generateJoin").onclick = prepareJoinHelper;
 }
@@ -1160,22 +1227,21 @@ async function loadPxStat() {
     statusEl.style.background = "var(--danger)";
     statusEl.style.color = "white";
     setTimeout(() => {
-      statusEl.style.background = "var(--light)";
+      statusEl.style.background = "";
       statusEl.style.color = "";
       statusEl.textContent = "Ready.";
     }, 3000);
     return;
   }
-  
+
   setBusy(true);
-  
+
   try {
     const url = csvUrlFor(code);
     statusEl.textContent = `Fetching ${code} from CSO...`;
-    
+
     const resp = await fetch(url);
-    
-    // Check if the response is OK
+
     if (!resp.ok) {
       if (resp.status === 404) {
         throw new Error(`Table '${code}' not found. Please check the code and try again.`);
@@ -1185,58 +1251,52 @@ async function loadPxStat() {
         throw new Error(`Failed to load table '${code}' (Status: ${resp.status})`);
       }
     }
-    
-    // Check content type
+
     const contentType = resp.headers.get('content-type');
     if (!contentType || !contentType.includes('text/csv')) {
       throw new Error(`Table '${code}' returned unexpected format. Expected CSV, got ${contentType || 'unknown'}`);
     }
-    
+
     const csv = await resp.text();
-    
-    // Check if CSV is empty or invalid
+
     if (!csv || csv.trim().length === 0) {
       throw new Error(`Table '${code}' is empty or returned no data.`);
     }
-    
+
     statusEl.textContent = `Loading ${code} into DuckDB...`;
-    
+
     const tableName = `px_${code}`;
     await db.registerFileText(`${tableName}.csv`, csv);
-    
-    // Try to create the table
+
     try {
       await conn.query(`CREATE OR REPLACE TABLE ${tableName} AS SELECT * FROM read_csv_auto('${tableName}.csv')`);
     } catch (err) {
       throw new Error(`Failed to parse CSV for '${code}'. The data format may be invalid: ${err.message}`);
     }
-    
+
     await updateTablesDropdown();
     dropdown.value = tableName;
     await loadColumnsFor(tableName);
     sqlEl.value = `SELECT * FROM ${tableName} LIMIT 50;`;
-    
-    // Success message
+
     statusEl.textContent = `✓ Loaded ${tableName} successfully`;
     statusEl.style.background = "var(--success)";
     statusEl.style.color = "white";
     setTimeout(() => {
-      statusEl.style.background = "var(--light)";
+      statusEl.style.background = "";
       statusEl.style.color = "";
       statusEl.textContent = "Ready";
     }, 1000);
-    
+
   } catch (err) {
     console.error("Load error:", err);
-    
-    // Show error to user
+
     statusEl.textContent = `✗ Error: ${err.message}`;
     statusEl.style.background = "var(--danger)";
     statusEl.style.color = "white";
-    
-    // Keep error visible longer
+
     setTimeout(() => {
-      statusEl.style.background = "var(--light)";
+      statusEl.style.background = "";
       statusEl.style.color = "";
       statusEl.textContent = "Failed to Load.";
     }, 3000);
@@ -1254,7 +1314,7 @@ async function dropSelected() {
   setBusy(true);
   try {
     const isView = dropdown.options[dropdown.selectedIndex].text.includes('📂');
-    
+
     if (isView) {
       await conn.query(`DROP VIEW IF EXISTS "${selected}";`);
     } else {
@@ -1267,7 +1327,9 @@ async function dropSelected() {
     columnsList.innerHTML = "";
     document.getElementById('resultTable').innerHTML = '';
     currentTableData = [];
-    
+    paginationControls.classList.add('hidden');
+    resultsMetaEl.textContent = '';
+
   } catch (err) {
     console.error(err);
     statusEl.textContent = "Drop failed.";
@@ -1313,7 +1375,7 @@ async function prepareJoinHelper() {
 
   const common = colsA.filter(value => colsB.includes(value));
   let joinCol = common.length > 0 ? common[0] : "REPLACE_WITH_COLUMN";
-  
+
   const sql = `-- Joining ${tableA} and ${tableB}\n` +
               `SELECT \n` +
               `  a.*, \n` +
@@ -1324,12 +1386,12 @@ async function prepareJoinHelper() {
               `LIMIT 100;`;
 
   sqlEl.value = sql;
-  
+
   if (common.length > 0) {
-    document.getElementById("joinSuggestions").innerHTML = 
+    document.getElementById("joinSuggestions").innerHTML =
       `Suggested join key: <strong>${common.join(", ")}</strong>`;
   } else {
-    document.getElementById("joinSuggestions").innerHTML = 
+    document.getElementById("joinSuggestions").innerHTML =
       `<span style="color: var(--danger);">No matching column names found. You'll need to pick the keys manually.</span>`;
   }
 }
@@ -1337,10 +1399,10 @@ async function prepareJoinHelper() {
 async function updateJoinDropdowns() {
   const res = await conn.query(`SELECT table_name FROM duckdb_tables() WHERE internal = false`);
   const tables = res.toArray().map(r => normalizeRow(r).table_name);
-  
+
   const selA = document.getElementById("joinTableA");
   const selB = document.getElementById("joinTableB");
-  
+
   [selA, selB].forEach(sel => {
     sel.innerHTML = '<option value="">Select Table...</option>';
     tables.forEach(t => {
@@ -1389,19 +1451,19 @@ async function checkKeyOverlap() {
     const overlapQuery = `
       WITH keysA AS (SELECT DISTINCT "${joinKey}" as k FROM ${tableA}),
            keysB AS (SELECT DISTINCT "${joinKey}" as k FROM ${tableB})
-      SELECT 
+      SELECT
         (SELECT COUNT(*) FROM keysA) as totalA,
         (SELECT COUNT(*) FROM keysB) as totalB,
         (SELECT COUNT(*) FROM keysA JOIN keysB ON keysA.k = keysB.k) as matches
     `;
-    
+
     const res = await conn.query(overlapQuery);
     const data = normalizeRow_view(res.toArray()[0]);
 
     const matches = Number(data.matches);
     const totalA = Number(data.totalA);
     const matchPercent = totalA > 0 ? ((matches / totalA) * 100).toFixed(1) : 0;
-    
+
     resultsDiv.innerHTML = `
       <strong>Key Analysis on [${joinKey}]:</strong><br>
       • Table A has ${data.totalA} unique values.<br>
@@ -1433,26 +1495,21 @@ runBtn.onclick = async () => {
     statusEl.textContent = "Please enter a SQL query";
     return;
   }
-  
+
   setBusy(true);
-  const startTime = performance.now();
-  
+
   try {
-    const res = await conn.query(query);
-    const endTime = performance.now();
-    const executionTime = Math.round(endTime - startTime);
-    
-    renderTable(res);
-    
-    const rowCount = currentTableData.length;
-    statusEl.textContent = `Query completed: ${rowCount} rows in ${executionTime}ms`;
-    
-    // Add to history
-    addToHistory(query, true, rowCount, executionTime);
-    
-  } catch (e) { 
+    const baseQuery = stripTrailingSemicolon(query);
+    const { totalRows, executionTime } = await executePagedQuery(baseQuery, 0, null, null);
+
+    statusEl.textContent = `Query completed: ${totalRows.toLocaleString()} rows in ${executionTime}ms`;
+    addToHistory(query, true, totalRows, executionTime);
+
+  } catch (e) {
     statusEl.textContent = "SQL Error: " + e.message;
     addToHistory(query, false, 0, 0);
+    paginationControls.classList.add('hidden');
+    resultsMetaEl.textContent = '';
   }
   setBusy(false);
 };
@@ -1496,14 +1553,14 @@ catalogBtn.onclick = async () => {
 
 catalogSearch.oninput = (e) => {
   const term = e.target.value.toLowerCase();
-  renderCatalog(fullCatalogItems.filter(i => 
-    i.id.toLowerCase().includes(term) || 
+  renderCatalog(fullCatalogItems.filter(i =>
+    i.id.toLowerCase().includes(term) ||
     i.title.toLowerCase().includes(term)
   ));
 };
 
-dropdown.onchange = () => { 
-  if (dropdown.value) loadColumnsFor(dropdown.value); 
+dropdown.onchange = () => {
+  if (dropdown.value) loadColumnsFor(dropdown.value);
 };
 
 sqlEl.onkeydown = (e) => {
@@ -1532,7 +1589,6 @@ await loadPromptTemplate();
 await checkPendingCodes();
 await updateTablesDropdown();
 
-// Check URL hash for shared state on load
 const hashState = location.hash.length > 1
   ? decodeShareState(location.hash.substring(1))
   : null;

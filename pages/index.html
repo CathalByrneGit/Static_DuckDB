@@ -125,6 +125,7 @@
                 <select id="apiProvider" style="width: auto;">
                   <option value="anthropic">Anthropic Claude</option>
                   <option value="openai">OpenAI</option>
+                  <option value="openrouter">OpenRouter</option>
                   <option value="custom">Custom Endpoint</option>
                 </select>
               </div>
@@ -136,12 +137,12 @@
               </div>
               <div class="text-muted text-small mb-1">🔒 API key is never saved - enter each session for security</div>
             </div>
-            
+
             <div class="assistant-input-container">
               <textarea id="assistantPrompt" rows="2" placeholder="Describe what you want to query in plain English... e.g., 'Show me the top 10 regions by population in 2020'"></textarea>
               <button id="generateSQL" class="btn-success">Generate SQL</button>
             </div>
-            
+
             <div id="assistantOutput" class="assistant-output hidden">
               <div class="output-header">
                 <span>Generated SQL:</span>
@@ -168,7 +169,17 @@
 
         <!-- Results -->
         <div class="card">
-          <div class="card-header">Results</div>
+          <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+            <span>Results</span>
+            <span id="resultsMeta" class="results-meta"></span>
+          </div>
+          <div id="paginationControls" class="pagination-controls hidden">
+            <span id="pageInfo" class="pagination-info"></span>
+            <div class="pagination-buttons">
+              <button id="prevPage" class="btn-sm btn-outline" disabled>← Prev</button>
+              <button id="nextPage" class="btn-sm btn-outline" disabled>Next →</button>
+            </div>
+          </div>
           <div class="table-container">
             <table id="resultTable">
               <thead></thead>
